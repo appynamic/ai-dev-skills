@@ -1,0 +1,12 @@
+{
+	"name": "ai-dev-skills",
+	"owner": { "name": "appynamic" },
+	"plugins": [
+		{
+			"name": "journal",
+			"source": "./plugins/journal",
+			"description": "Automatic dev journal — prompts, questions/answers, the approved plan, and Claude's replies are written to docs/journals/ by hooks, nothing to type.",
+			"version": "1.0.0"
+		}
+	]
+}

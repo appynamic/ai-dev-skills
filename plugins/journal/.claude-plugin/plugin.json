@@ -1,0 +1,10 @@
+{
+	"name": "journal",
+	"version": "1.0.0",
+	"description": "Automatic dev journal — prompts, questions/answers, the approved plan, and Claude's replies are written to docs/journals/ by hooks, nothing to type. Commit guard keeps every commit linked to its journal entry.",
+	"author": { "name": "appynamic" },
+	"homepage": "https://github.com/appynamic/ai-dev-skills",
+	"repository": "https://github.com/appynamic/ai-dev-skills",
+	"license": "MIT",
+	"keywords": ["journal", "changelog", "documentation", "hooks", "git", "commit"]
+}

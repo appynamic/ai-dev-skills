@@ -1,0 +1,32 @@
+{
+	"description": "Automatic Claude Code conversation journal",
+	"hooks": {
+		"SessionStart": [
+			{
+				"hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/skills/journal/scripts/journal.mjs\" session", "timeout": 30 }]
+			}
+		],
+		"UserPromptSubmit": [
+			{
+				"hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/skills/journal/scripts/journal.mjs\" prompt", "timeout": 30 }]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/skills/journal/scripts/journal.mjs\" stop", "timeout": 30 }]
+			}
+		],
+		"PostToolUse": [
+			{
+				"matcher": "AskUserQuestion|ExitPlanMode",
+				"hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/skills/journal/scripts/journal.mjs\" tool", "timeout": 30 }]
+			}
+		],
+		"PreToolUse": [
+			{
+				"matcher": "Bash|PowerShell",
+				"hooks": [{ "type": "command", "command": "node \"${CLAUDE_PLUGIN_ROOT}/skills/journal/scripts/journal.mjs\" precommit", "timeout": 30 }]
+			}
+		]
+	}
+}
