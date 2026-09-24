@@ -97,6 +97,16 @@ describe('markers', () => {
 		assert.equal(lib.trailingExtras('no marker here'), '');
 	});
 
+	it('drops a trailing open, unanswered turn instead of preserving it as extras (backfill will reconstruct it from the transcript)', () => {
+		const broken = `> a\n\n${lib.REPLY_MARKER}\n\n--------------------------------------------\n\n> b\n\n${lib.TURN_MARKER}`;
+		assert.equal(lib.trailingExtras(broken), '');
+	});
+
+	it('keeps a manual synthesis even when a broken open turn was appended after it', () => {
+		const content = `> a\n\n${lib.REPLY_MARKER}\n\n### Synthèse · x\nRésumé : fait.\n\n--------------------------------------------\n\n> broken prompt\n\n${lib.TURN_MARKER}`;
+		assert.equal(lib.trailingExtras(content), '### Synthèse · x\nRésumé : fait.');
+	});
+
 	it('only separates exchanges, never the first one of a session', () => {
 		assert.ok(!lib.needsSeparator('# T\n\n## Session 2026-09-24 · abc (windows)\n'));
 		assert.ok(lib.needsSeparator(`> a\n\n${lib.REPLY_MARKER}\n`));

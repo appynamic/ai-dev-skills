@@ -59,7 +59,17 @@ export function escapeMarkers(text) {
 export function trailingExtras(content) {
 	const at = content.lastIndexOf(REPLY_MARKER);
 	if (at === -1) return '';
-	return content.slice(at + REPLY_MARKER.length).replace(/^\s+/, '').replace(/\s+$/, '');
+	let tail = content.slice(at + REPLY_MARKER.length);
+	// A prompt a hook already wrote before breaking, with no reply after it, is mechanical
+	// residue that backfill's own transcript walk will reconstruct correctly on its own — strip
+	// just that broken trailing exchange, but keep whatever legitimate content (e.g. a manually
+	// written synthesis) precedes it in the same tail.
+	const lastTurn = tail.lastIndexOf(TURN_MARKER);
+	if (lastTurn !== -1 && tail.indexOf(REPLY_MARKER, lastTurn) === -1) {
+		const cut = tail.lastIndexOf(SEPARATOR, lastTurn);
+		tail = cut === -1 ? '' : tail.slice(0, cut);
+	}
+	return tail.replace(/^\s+/, '').replace(/\s+$/, '');
 }
 
 /** @param {string} content */
