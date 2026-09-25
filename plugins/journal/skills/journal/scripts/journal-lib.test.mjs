@@ -283,3 +283,27 @@ describe('commit guard', () => {
 		assert.equal(lib.renderChangeTable('', L), '');
 	});
 });
+
+describe('plugin install scope', () => {
+	const at = (projectPath) => ({ scope: 'project', projectPath });
+	const inst = (...list) => ({ plugins: { 'journal@ai-dev-skills': list } });
+
+	it('says nothing when the install file is unreadable, or the plugin is user-scoped', () => {
+		assert.deepEqual(lib.pluginInstallProblems(null, 'C:/www/app', 'win32'), []);
+		assert.deepEqual(lib.pluginInstallProblems(inst(at('C:\\www\\app'), { scope: 'user' }), 'C:/www/app', 'win32'), []);
+	});
+
+	it('flags a missing install, or one made for another project', () => {
+		assert.match(lib.pluginInstallProblems({ plugins: {} }, '/repo', 'linux')[0], /not installed.*--scope user/);
+		assert.match(lib.pluginInstallProblems(inst(at('/other')), '/repo', 'linux')[0], /other projects only \(\/other\)/);
+	});
+
+	it('flags a project-only install on Windows, whatever the drive-letter case', () => {
+		for (const p of ['C:\\www\\app', 'c:\\www\\app', 'c:/www/app/']) assert.match(lib.pluginInstallProblems(inst(at(p)), 'C:/www/app', 'win32')[0], /case-sensitively.*--scope user/);
+	});
+
+	it('accepts a project-only install elsewhere, where paths are case-exact', () => {
+		assert.deepEqual(lib.pluginInstallProblems(inst(at('/repo/')), '/repo', 'linux'), []);
+		assert.equal(lib.pluginInstallProblems(inst(at('/Repo')), '/repo', 'darwin').length, 1);
+	});
+});

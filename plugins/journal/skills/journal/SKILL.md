@@ -37,7 +37,7 @@ Run once per project (idempotent — safe to run again after a config change).
 
 1. Ask: journals directory (default `docs/journals`), default verbosity locally (default `final`) and on Claude Code web (default `text+tools`).
 2. `node "${CLAUDE_PLUGIN_ROOT}/skills/journal/scripts/install.mjs" --dry-run [--dir <path>] [--verbosity <v>] [--verbosity-web <v>]`, show the result.
-3. Same command without `--dry-run`, then `install.mjs --check`.
+3. Same command without `--dry-run`, then `install.mjs --check`. If it warns about the install scope, relay the fix as-is (`claude plugin install journal@ai-dev-skills --scope user`): on Windows a project-scope install is invisible to sessions opened with the other drive-letter case (terminal `C:` vs VS Code `c:`).
 4. Remind: verify the plugin is enabled with `/plugin`, then start a **new session** — hooks load at session start, so the current one won't journal until the next one.
 
 ## Synthesis

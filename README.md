@@ -51,6 +51,8 @@ Or commit it to a project's `.claude/settings.json` so every collaborator gets i
 
 Check it's enabled with `/plugin`.
 
+**On Windows, install at user scope** (`claude plugin install journal@ai-dev-skills --scope user`, or pick "user" in `/plugin`). A project-scope install is keyed on the exact project path, and the drive letter's case depends on the launcher — the terminal CLI records `C:\…`, the VS Code extension `c:\…` — so a project install made from one never loads in the other: no hook fires, `/journal` is "no matching command", and nothing reaches `journal-errors.log`. `/journal init` and `install.mjs --check` warn about it.
+
 ### 3. Set up the project
 
 Inside the project you want journaled:
@@ -138,6 +140,7 @@ Naming: `YYYY-MM-DD--NNN-<slug>.md` (`NNN` = the day's sequence, restarts at `00
 | Symptom | Cause / fix |
 | --- | --- |
 | Nothing gets written | plugin not enabled (`/plugin`), or the session was opened before `/journal init` — open a new one. Check `.claude/journal-errors.log` |
+| `/journal` → "no matching command" (Windows), no draft ever created | project-scope install made under the other drive-letter case (terminal `C:` vs VS Code `c:`) — `claude plugin install journal@ai-dev-skills --scope user`, then a new session. `install.mjs --check` flags it |
 | Git hook ignored on Mac | `git ls-files -s .githooks/prepare-commit-msg` should show `100755`; otherwise `git update-index --chmod=+x .githooks/prepare-commit-msg` |
 | Commit refused | read the reason: `/journal note`, then the synthesis in the commit body + `Journal:`/`Plan:` trailers |
 | Question/answer missing from the journal | `AskUserQuestion`'s output shape changed — the raw JSON is in `journal-errors.log`; open an issue |

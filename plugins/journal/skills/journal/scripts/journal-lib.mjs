@@ -649,3 +649,42 @@ export function renderChangeTable(nameStatus, labels) {
 	if (!rows.length) return '';
 	return [`| ${labels.file} | ${labels.change} |`, '| --- | --- |', ...rows].join('\n');
 }
+
+// ─── Plugin install scope ─────────────────────────────────────────────────────
+// Claude Code keys a project-scope install on the exact `projectPath` string, and on Windows the
+// drive letter's case depends on the launcher: the terminal CLI records `C:\…`, the VS Code
+// extension `c:\…`. A project install made from one is invisible to the other — hooks silently
+// never fire and `/journal` is "no matching command". A user-scope install has no path to match.
+
+/** @param {string} p @param {string} platform */
+function samePath(p, platform) {
+	const s = String(p ?? '').replace(/\\/g, '/').replace(/\/+$/, '');
+	return platform === 'win32' ? s.toLowerCase() : s;
+}
+
+/**
+ * @typedef {object} PluginInstall
+ * @property {string} scope
+ * @property {string} [projectPath]
+ */
+
+/**
+ * Problems with how the journal plugin is installed for `root`, from the parsed
+ * `~/.claude/plugins/installed_plugins.json` (null when unreadable → nothing to judge).
+ * @param {{ plugins?: Record<string, PluginInstall[]> } | null} installed
+ * @param {string} root @param {string} platform
+ */
+export function pluginInstallProblems(installed, root, platform) {
+	if (!installed?.plugins) return [];
+	const entries = Object.entries(installed.plugins)
+		.filter(([id]) => id.startsWith('journal@'))
+		.flatMap(([, list]) => (Array.isArray(list) ? list : []));
+	const fix = 'claude plugin install journal@ai-dev-skills --scope user';
+	if (!entries.length) return [`journal plugin not installed → ${fix}`];
+	if (entries.some((e) => e.scope === 'user')) return [];
+	const here = samePath(root, platform);
+	const mine = entries.filter((e) => e.scope !== 'user' && samePath(e.projectPath ?? '', platform) === here);
+	if (!mine.length) return [`journal plugin installed for other projects only (${entries.map((e) => e.projectPath ?? e.scope).join(', ')}) → ${fix}`];
+	if (platform === 'win32') return [`journal plugin installed at project scope only (${mine.map((e) => e.projectPath).join(', ')}): Claude Code matches the path case-sensitively, so a session opened with the other drive-letter case (terminal "C:" vs VS Code "c:") won't load it → ${fix}`];
+	return [];
+}

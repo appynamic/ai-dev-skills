@@ -11,8 +11,10 @@
 // touches the journals themselves.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { pluginInstallProblems } from './journal-lib.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = path.resolve(SCRIPT_DIR, '..');
@@ -315,7 +317,19 @@ function check(root, dirRel) {
 	else if (hook.includes('\r\n')) problems.push('git hook has CRLF line endings (breaks on Mac/Linux)');
 	const local = tryGit(root, ['check-ignore', '-q', '--no-index', '.claude/settings.local.json']);
 	if (local === null && fs.existsSync(path.join(root, '.claude', 'settings.local.json'))) problems.push('.claude/settings.local.json is not git-ignored (risk of committing it)');
+	problems.push(...installScopeProblems(root));
 	return problems;
+}
+
+/** @param {string} root */
+function installScopeProblems(root) {
+	const configDir = process.env.CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+	const raw = read(path.join(configDir, 'plugins', 'installed_plugins.json'));
+	let installed = null;
+	try {
+		installed = raw ? JSON.parse(raw) : null;
+	} catch {}
+	return pluginInstallProblems(installed, root, process.platform);
 }
 
 // ─── main ─────────────────────────────────────────────────────────────────────
@@ -361,6 +375,9 @@ function main() {
 	installPackageJson(root, usesGithooksDir, opts);
 	installClaudeMd(root, dirRel, opts);
 	installJournalsReadme(root, dirRel, opts);
+	// Surfaced right away rather than only on --check: a wrong install scope is the one setup
+	// failure that leaves no trace at all (no hook runs, so nothing reaches journal-errors.log).
+	if (!opts.uninstall) for (const p of installScopeProblems(root)) log(opts, `⚠ ${p}`);
 	if (!opts.uninstall && !opts.dryRun) log(opts, '\nVerify the plugin is enabled with `/plugin`, then `install.mjs --check`.');
 }
 
