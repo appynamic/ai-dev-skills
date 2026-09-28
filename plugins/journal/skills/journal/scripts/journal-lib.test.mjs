@@ -6,6 +6,29 @@ import * as lib from './journal-lib.mjs';
 
 const L = lib.LABELS.fr;
 
+describe('discarded sessions', () => {
+	it('adds, dedupes and removes session ids', () => {
+		let c = lib.setDiscarded('', 'a', true);
+		c = lib.setDiscarded(c, 'b', true);
+		c = lib.setDiscarded(c, 'a', true);
+		assert.deepEqual(lib.parseDiscarded(c), ['b', 'a']);
+		assert.equal(lib.setDiscarded(lib.setDiscarded(c, 'a', false), 'b', false), '');
+	});
+
+	it('ignores blank lines, comments and CRLF', () => {
+		assert.deepEqual(lib.parseDiscarded('# comment\r\na\r\n\r\n  b  \n'), ['a', 'b']);
+	});
+
+	it('keeps only the most recent ids', () => {
+		let c = '';
+		for (let i = 0; i < lib.DISCARDED_KEEP + 5; i++) c = lib.setDiscarded(c, `s${i}`, true);
+		const ids = lib.parseDiscarded(c);
+		assert.equal(ids.length, lib.DISCARDED_KEEP);
+		assert.equal(ids[0], 's5');
+		assert.equal(ids.at(-1), `s${lib.DISCARDED_KEEP + 4}`);
+	});
+});
+
 describe('slugify / names', () => {
 	it('drops accents, stopwords and the subtitle after an em dash', () => {
 		assert.equal(lib.slugify('Journal de conversations auto — hooks + skill'), 'journal-conversations-auto');

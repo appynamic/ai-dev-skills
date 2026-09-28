@@ -122,6 +122,7 @@ Change `dir` or verbosity later with `/journal init` again, or `/journal verbosi
 | `/journal note` | synthesis + file table — required before a Claude-made commit |
 | `/journal use <slug>` | continue a journal from another session/machine |
 | `/journal pause` / `resume` | stop/resume recording (before pasting sensitive data) |
+| `/journal discard` | delete this session's draft and stop recording it (a session not worth keeping); `resume` undoes it |
 | `/journal search <words>` / `last [N]` | find a past decision |
 | `/journal status` | journal, plan, verbosity of the current session |
 

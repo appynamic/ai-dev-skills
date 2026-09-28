@@ -1,7 +1,7 @@
 ---
 name: journal
 description: Automatic dev journal in docs/journals (prompts, questions/answers, plan, Claude's replies, written by hooks). Use to name the session's journal, write the synthesis, set verbosity, pause, resume a journal on another machine, search past journals, or set up the journal in a project. Use when the user types /journal, when the user explicitly asks Claude to commit in a repo where the journal is installed (never on Claude's own initiative), and when asked what was decided in a past session.
-argument-hint: "[title | note | use <slug> | verbosity <final|text|text+tools> [--web] | pause | resume | search <words> | last [N] | status | init]"
+argument-hint: "[title | note | use <slug> | verbosity <final|text|text+tools> [--web] | pause | resume | discard | search <words> | last [N] | status | init]"
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/skills/journal/scripts/journal.mjs":*) Bash(node "${CLAUDE_PLUGIN_ROOT}/skills/journal/scripts/install.mjs":*) Bash(git diff:*) Bash(git log:*) Bash(git status:*) Read Grep Glob Edit
 ---
 
@@ -24,6 +24,7 @@ Take the first word of the arguments:
 | `use <slug>` | `journal.mjs use <slug>`. Attaches the session to an existing journal — continuing a feature started in another session or on another machine. |
 | `verbosity <level> [--web]` | `journal.mjs verbosity <level> [--web]`. Levels: `final` (last message only), `text` (all your text), `text+tools` (text + one line per tool group). `--web` sets the level used on Claude Code web. Takes effect next turn. |
 | `pause` / `resume` | `journal.mjs pause` / `resume`. Nothing is journaled while paused. |
+| `discard` | `journal.mjs discard`. Deletes the session's **draft** journal and stops journaling this session for good — a session not worth keeping (a quick question, an export, a false start). Refused on a named journal (it may hold other sessions and a plan): offer `pause` instead, or let the user delete it by hand. `resume`, `use` or a title lifts it; journaling restarts in a new draft at the next prompt. Only run it on an explicit request — it deletes a file. |
 | `search <words>` | See "Search". |
 | `last [N]` | List the N (default 5) most recent journals in the journals dir with their title (`# …`); for N=1, read it in full and summarize it. |
 | `init` | Set up the journal in this project (see "Setup"). |
@@ -105,5 +106,6 @@ The PR body holds the session's (or branch's) syntheses, then links to the journ
 - At the start of a session, the `SessionStart` hook lists recent journals: if the request clearly continues one of them, propose `/journal use <slug>`.
 - Never edit verbatim content already written, or the `<!-- journal:… -->` markers.
 - If the user is about to paste sensitive data, suggest `/journal pause`.
+- Never propose `/journal discard` on your own for a session with real work in it; if the user says the session isn't worth journaling, it's the command to run.
 - A hook problem shows up in `.claude/journal-errors.log`.
 - Never stage or commit without being explicitly asked in the turn — the journal is prepared, not committed on its own (see "Commit").

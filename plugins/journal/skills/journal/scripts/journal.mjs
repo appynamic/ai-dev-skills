@@ -2,7 +2,7 @@
 // @ts-check
 // Entry point of the journal skill (github.com/appynamic/ai-dev-skills). Two families of commands:
 //   hooks (read a JSON payload on stdin): session | prompt | stop | tool | precommit
-//   CLI   (called by /journal or by hand): status | rename | use | pause | resume | verbosity | table | backfill | help
+//   CLI   (called by /journal or by hand): status | rename | use | pause | resume | discard | verbosity | table | backfill | help
 // Hook commands must never break a Claude Code session: every error is swallowed into
 // .claude/journal-errors.log and the process exits 0. Only `precommit` may deny, on purpose.
 //
@@ -81,6 +81,27 @@ function findJournal(ctx, sessionId) {
 	const marker = lib.sessionMarker(sessionId);
 	for (const { name } of names) if (read(path.join(ctx.dir, name)).includes(marker)) return name;
 	return null;
+}
+
+/** @param {Ctx} ctx */
+function discardedPath(ctx) {
+	return path.join(ctx.root, '.claude', 'journal-discarded');
+}
+
+/** @param {Ctx} ctx @param {string} sessionId */
+function isDiscarded(ctx, sessionId) {
+	return lib.parseDiscarded(read(discardedPath(ctx))).includes(sessionId);
+}
+
+/** @param {Ctx} ctx @param {string} sessionId @param {boolean} discarded */
+function markDiscarded(ctx, sessionId, discarded) {
+	const file = discardedPath(ctx);
+	const prev = read(file);
+	if (!discarded && !prev) return;
+	const next = lib.setDiscarded(prev, sessionId, discarded);
+	if (next === prev) return;
+	if (next) write(file, next);
+	else fs.rmSync(file, { force: true });
 }
 
 /** @param {string} file */
@@ -191,7 +212,8 @@ async function hookSession(ctx, input) {
 		.slice(0, 5)
 		.map((f) => `- ${f.name} — ${(read(path.join(ctx.dir, f.name)).match(/^# (.*)$/m) ?? [])[1] ?? ''}`);
 	const lines = [`Journal auto actif (${ctx.dirRel}, verbosité ${ctx.verbosity}).`];
-	if (own) lines.push(`Journal de cette session : ${rel(ctx, own)}.`);
+	if (sid && isDiscarded(ctx, sid)) lines.push('Session écartée du journal (`/journal discard`) : rien n’est journalisé — `/journal resume` pour reprendre.');
+	else if (own) lines.push(`Journal de cette session : ${rel(ctx, own)}.`);
 	else if (recent.length) lines.push('Journaux récents — si cette session continue une de ces features, propose `/journal use <slug>` :', ...recent);
 	process.stdout.write(`${lines.join('\n')}\n`);
 }
@@ -363,7 +385,7 @@ function cmdStatus(ctx, args) {
 	const name = findJournal(ctx, sid);
 	const plan = name ? planOf(ctx, name) : null;
 	const content = name ? read(path.join(ctx.dir, name)) : '';
-	const out = { session: sid, journal: name ? rel(ctx, name) : null, plan: plan ? rel(ctx, plan) : null, draft: name ? Boolean(lib.parseJournalFileName(name)?.draft) : null, paused: name ? lib.isPaused(content, sid) : false, verbosity: ctx.verbosity, machine: machine() };
+	const out = { session: sid, journal: name ? rel(ctx, name) : null, plan: plan ? rel(ctx, plan) : null, draft: name ? Boolean(lib.parseJournalFileName(name)?.draft) : null, paused: name ? lib.isPaused(content, sid) : false, discarded: isDiscarded(ctx, sid), verbosity: ctx.verbosity, machine: machine() };
 	process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
 }
 
@@ -373,6 +395,8 @@ function cmdRename(ctx, args) {
 	const slug = takeFlag(args, '--slug');
 	const title = args.join(' ').trim();
 	if (!title) throw new Error('usage: rename <title> [--slug <slug>]');
+	// Naming a journal is an explicit request to keep one: it lifts a previous discard.
+	markDiscarded(ctx, sid, false);
 	const name = ensureJournal(ctx, sid);
 	const next = renameJournal(ctx, name, title, slug ? lib.slugify(slug, 99) : undefined);
 	process.stdout.write(`${rel(ctx, next)}\n`);
@@ -388,6 +412,7 @@ function cmdUse(ctx, args) {
 	const loose = matches.length ? matches : names.filter((n) => n.includes(query));
 	if (loose.length !== 1) throw new Error(loose.length ? `ambiguous: ${loose.join(', ')}` : `no journal matches "${query}"`);
 	const target = loose[0];
+	markDiscarded(ctx, sid, false);
 	const current = findJournal(ctx, sid);
 	if (current === target) return void process.stdout.write(`${rel(ctx, target)}\n`);
 	const targetFile = path.join(ctx.dir, target);
@@ -408,6 +433,9 @@ function cmdUse(ctx, args) {
 /** @param {Ctx} ctx @param {string[]} args @param {boolean} pause */
 function cmdPause(ctx, args, pause) {
 	const sid = sessionFrom(args);
+	// Pausing a discarded session would recreate a draft only to hold the pause marker.
+	if (pause && isDiscarded(ctx, sid)) return void process.stdout.write('discarded: nothing is journaled for this session (resume to undo)\n');
+	if (!pause) markDiscarded(ctx, sid, false);
 	const name = ensureJournal(ctx, sid);
 	const file = path.join(ctx.dir, name);
 	const content = read(file);
@@ -415,6 +443,21 @@ function cmdPause(ctx, args, pause) {
 	if (pause && !content.includes(marker)) appendBlock(file, marker);
 	if (!pause) write(file, content.replace(new RegExp(`\\n*${marker.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\n?`, 'g'), '\n'));
 	process.stdout.write(`${pause ? 'paused' : 'resumed'}: ${rel(ctx, name)}\n`);
+}
+
+/**
+ * Drops the session from the journal: deletes its draft and records the session as discarded so
+ * the hooks don't start a new draft at the next prompt. Named journals are refused — they may hold
+ * other sessions (`use`) and carry a plan, so deleting one is a human decision, made by hand.
+ * @param {Ctx} ctx @param {string[]} args
+ */
+function cmdDiscard(ctx, args) {
+	const sid = sessionFrom(args);
+	const name = findJournal(ctx, sid);
+	if (name && !lib.parseJournalFileName(name)?.draft) throw new Error(`${rel(ctx, name)} is a named journal (it may hold other sessions): discard only deletes drafts — use pause, or delete it by hand`);
+	markDiscarded(ctx, sid, true);
+	if (name) fs.rmSync(path.join(ctx.dir, name), { force: true });
+	process.stdout.write(`discarded: ${name ? `${rel(ctx, name)} deleted` : 'no journal to delete'}; nothing will be journaled for this session (resume to undo)\n`);
 }
 
 /** @param {Ctx} ctx @param {string[]} args */
@@ -537,6 +580,7 @@ CLI:
   rename <title> [--slug s]   renames the session's journal (date + NNN kept)
   use <slug>                  attaches the session to an existing journal
   pause | resume              suspends / resumes journaling for the session
+  discard                     deletes the session's draft and stops journaling it (resume to undo)
   verbosity <level> [--web]   final | text | text+tools
   table                       markdown table of staged files
   backfill <transcript.jsonl> [--title t] [--slug s] [--verbosity v] [--force]
@@ -560,6 +604,8 @@ async function main() {
 		}
 		const ctx = context(input);
 		try {
+			const sid = /** @type {any} */ (input).session_id;
+			if (cmd !== 'session' && sid && isDiscarded(ctx, sid)) return;
 			if (cmd === 'session') await hookSession(ctx, input);
 			else if (cmd === 'prompt') hookPrompt(ctx, input);
 			else if (cmd === 'stop') hookStop(ctx, input);
@@ -577,6 +623,7 @@ async function main() {
 		else if (cmd === 'use') cmdUse(ctx, args);
 		else if (cmd === 'pause') cmdPause(ctx, args, true);
 		else if (cmd === 'resume') cmdPause(ctx, args, false);
+		else if (cmd === 'discard') cmdDiscard(ctx, args);
 		else if (cmd === 'verbosity') cmdVerbosity(ctx, args);
 		else if (cmd === 'table') cmdTable(ctx);
 		else if (cmd === 'backfill') cmdBackfill(ctx, args);

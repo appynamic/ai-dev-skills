@@ -82,6 +82,29 @@ export function isPaused(content, sessionId) {
 	return content.includes(pausedMarker(sessionId));
 }
 
+// ─── Discarded sessions ───────────────────────────────────────────────────────
+// A discard deletes the journal, so it cannot be recorded IN the journal the way a pause is:
+// the next prompt would find no journal and start a fresh draft. The list lives beside it.
+
+/** Enough for months of discards; older ids belong to sessions that will never prompt again. */
+export const DISCARDED_KEEP = 200;
+
+/** @param {string} content one session id per line */
+export function parseDiscarded(content) {
+	return content
+		.split(/\r?\n/)
+		.map((l) => l.trim())
+		.filter((l) => l && !l.startsWith('#'));
+}
+
+/** @param {string} content @param {string} sessionId @param {boolean} discarded @returns {string} */
+export function setDiscarded(content, sessionId, discarded) {
+	const ids = parseDiscarded(content).filter((id) => id !== sessionId);
+	if (discarded) ids.push(sessionId);
+	const kept = ids.slice(-DISCARDED_KEEP);
+	return kept.length ? `${kept.join('\n')}\n` : '';
+}
+
 /**
  * @param {{ name: string, content: string }[]} files
  * @param {string} sessionId
