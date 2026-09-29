@@ -159,7 +159,8 @@ export function cleanPrompt(raw) {
 
 /** @param {string} text */
 export function isJournalCommand(text) {
-	return /^\/journal(\s|$)/.test(text.trim());
+	// Plugin skills are namespaced: `/journal:journal <title>` is the same command as `/journal <title>`.
+	return /^\/journal(:journal)?(\s|$)/.test(text.trim());
 }
 
 /** Journal headings stay the outline; assistant headings are pushed below them. @param {string} text */

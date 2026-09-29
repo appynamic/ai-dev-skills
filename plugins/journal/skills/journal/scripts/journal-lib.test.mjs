@@ -79,7 +79,10 @@ describe('quotePrompt / cleanPrompt', () => {
 		assert.equal(lib.cleanPrompt('<command-name>/model</command-name>\n<command-message>model</command-message>\n<command-args>opus</command-args>'), '');
 		assert.equal(lib.cleanPrompt('<command-name>/code-review</command-name>\n<command-args>high</command-args>'), '/code-review high');
 		assert.ok(lib.isJournalCommand('/journal note'));
+		assert.ok(lib.isJournalCommand('/journal:journal Mon titre'));
+		assert.ok(lib.isJournalCommand(lib.cleanPrompt('<command-name>/journal:journal</command-name>\n<command-args>Mon titre</command-args>')));
 		assert.ok(!lib.isJournalCommand('/journaling'));
+		assert.ok(!lib.isJournalCommand('/journal:other'));
 	});
 
 	it('neutralises journal markers quoted in text', () => {
