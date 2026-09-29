@@ -12,6 +12,7 @@ export const VERBOSITIES = ['final', 'text', 'text+tools'];
 /**
  * @typedef {object} JournalConfig
  * @property {string} dir
+ * @property {string} [project] subfolder of `dir`; defaults to the repo name when `dir` is outside the repo
  * @property {'fr' | 'en'} locale
  * @property {boolean} enforceCommit
  * @property {{ default?: Verbosity, web?: Verbosity } | Verbosity} [verbosity]
@@ -541,6 +542,31 @@ function looksWindows(p) {
 }
 
 /**
+ * Where journals live. A relative `dir` is inside the repo (committed with it); an absolute one,
+ * `~/…`, a UNC share or `../…` is outside — a network share or a synced drive (Google Drive…)
+ * that several repos can share, hence `project`: a per-repo subfolder, defaulting to the repo
+ * name outside the repo (`""` opts out). `label` is the portable path shown in trailers and
+ * messages: repo-relative inside, `<project>/` outside (the absolute path differs per machine).
+ * @param {string} root @param {{ dir?: string, project?: string }} config @param {string} home
+ * @returns {{ base: string, dir: string, dirRel: string | null, label: string, external: boolean, project: string }}
+ */
+export function resolveJournalDir(root, config, home) {
+	const p = looksWindows(root) ? path.win32 : path.posix;
+	let raw = String(config.dir || DEFAULT_CONFIG.dir).trim();
+	if (/^~(?=$|[\\/])/.test(raw)) raw = home + raw.slice(1);
+	const base = p.resolve(root, raw);
+	const baseRel = p.relative(root, base);
+	const external = baseRel === '..' || baseRel.startsWith(`..${p.sep}`) || p.isAbsolute(baseRel);
+	const project = String(config.project ?? (external ? p.basename(root) : ''))
+		.split(/[\\/]+/)
+		.filter((s) => s && s !== '.' && s !== '..')
+		.join('/');
+	const dir = project ? p.join(base, ...project.split('/')) : base;
+	const dirRel = external ? null : p.relative(root, dir).split(p.sep).join('/');
+	return { base, dir, dirRel, label: dirRel ?? project, external, project };
+}
+
+/**
  * Repo-relative, posix paths of files the turn edited. Files outside the repo (plan files live in
  * ~/.claude/plans) and excluded dirs (the journals themselves) do not count as "code changed".
  * @param {any[]} turn @param {string} projectDir @param {string[]} [excludeDirs] posix, repo-relative
@@ -593,7 +619,57 @@ export function resolveVerbosity(config, env) {
 export function isGitCommit(command) {
 	return String(command ?? '')
 		.split(/&&|\|\||;|\n|\|/)
-		.some((seg) => /^\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:rtk\s+)?git(?:\s+-[cC]\s+\S+)*\s+commit\b/.test(seg));
+		.some((seg) => GIT_COMMIT_RE.test(seg));
+}
+
+const GIT_COMMIT_RE = /^\s*\(*\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:rtk\s+)?git(?:\s+-[cC]\s+(?:"[^"]*"|'[^']*'|\S+))*\s+commit\b/;
+
+const SHELL_ARG = String.raw`(?:"([^"]*)"|'([^']*)'|([^\s"';|&]+))`;
+
+/**
+ * Where each `git commit` of a shell command runs, as path segments to resolve from the command's
+ * cwd — following `cd`/`pushd`/`Set-Location` and `git -C`, with `$VAR`/`${VAR}`/`$env:VAR`/`%VAR%`/`~`
+ * expanded from `env` and from `VAR=value` assignments earlier in the command. `null` = not
+ * resolvable statically (unknown variable, `cd -`…). A heuristic, not a shell: good enough to tell
+ * "commit in this project" from "commit in another repo".
+ * @param {string} command @param {Record<string, string | undefined>} [env] @returns {(string[] | null)[]}
+ */
+export function commitDirs(command, env = {}) {
+	/** @type {Record<string, string | undefined>} */
+	const vars = { ...env };
+	const home = env.HOME ?? env.USERPROFILE;
+	/** @param {RegExpMatchArray} m @param {number} i */
+	const argOf = (m, i) => m[i] ?? m[i + 1] ?? m[i + 2] ?? '';
+	/** @param {string} s @returns {string | null} */
+	const expand = (s) => {
+		const out = s
+			.replace(/\$env:([A-Za-z_]\w*)|\$\{([A-Za-z_]\w*)\}|\$([A-Za-z_]\w*)|%([A-Za-z_]\w*)%/g, (all, a, b, c, d) => vars[a ?? b ?? c ?? d] ?? all)
+			.replace(/^~(?=$|[\\/])/, home ?? '~');
+		return /\$|%\w+%|^~|^-$/.test(out) ? null : out;
+	};
+	/** @type {(string | null)[]} */
+	let cwd = [];
+	/** @type {(string[] | null)[]} */
+	const out = [];
+	for (const raw of String(command ?? '').split(/&&|\|\||;|\n|\|/)) {
+		const seg = raw.trim().replace(/^\(+\s*/, '').replace(/\s*\)+$/, '');
+		const assign = seg.match(new RegExp(`^(?:export\\s+|\\$)?([A-Za-z_]\\w*)\\s*=\\s*${SHELL_ARG}$`));
+		if (assign) {
+			vars[assign[1]] = expand(argOf(assign, 2)) ?? undefined;
+			continue;
+		}
+		const cd = seg.match(new RegExp(`^(?:cd|pushd|chdir|sl|Set-Location|Push-Location)(?:\\s+-(?:Path|LiteralPath))?\\s+${SHELL_ARG}$`, 'i'));
+		if (cd) {
+			cwd = [...cwd, expand(argOf(cd, 1))];
+			continue;
+		}
+		if (!isGitCommit(seg)) continue;
+		const flags = seg.match(new RegExp(`git((?:\\s+-[cC]\\s+${SHELL_ARG})*)\\s+commit\\b`))?.[1] ?? '';
+		const dashC = [...flags.matchAll(new RegExp(`-C\\s+${SHELL_ARG}`, 'g'))].map((m) => expand(argOf(m, 1)));
+		const parts = [...cwd, ...dashC];
+		out.push(parts.every((p) => p !== null) ? /** @type {string[]} */ (parts) : null);
+	}
+	return out;
 }
 
 /** @param {string} command */

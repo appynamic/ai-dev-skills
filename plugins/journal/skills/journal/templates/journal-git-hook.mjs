@@ -7,7 +7,8 @@
 // plugin itself is installed there (GitHub Desktop, a teammate without the plugin, CI…).
 //
 // Safe to regenerate any time with `/journal init` (e.g. after changing `dir` in
-// `.claude/journal.config.json`); removed by `/journal init --uninstall`.
+// `.claude/journal.config.json`); removed by `/journal init --uninstall`. Must resolve `dir` +
+// `project` exactly like resolveJournalDir() in the plugin's journal-lib.mjs.
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -47,13 +48,25 @@ function main() {
 	// A merge or squash message is written by git itself; trailers there would be misleading.
 	if (!msgFile || source === 'merge' || source === 'squash') return;
 	const root = execFileSync('git', ['rev-parse', '--show-toplevel'], { encoding: 'utf8' }).trim();
-	let dir = 'docs/journals';
-	try {
-		dir = JSON.parse(fs.readFileSync(path.join(root, '.claude', 'journal.config.json'), 'utf8')).dir ?? dir;
-	} catch {
-		// default dir
+	/** @type {{ dir?: string, project?: string }} */
+	const config = {};
+	for (const name of ['journal.config.json', 'journal.config.local.json']) {
+		try {
+			Object.assign(config, JSON.parse(fs.readFileSync(path.join(root, '.claude', name), 'utf8')));
+		} catch {
+			// optional
+		}
 	}
-	dir = dir.replace(/\\/g, '/').replace(/\/$/, '');
+	const raw = String(config.dir || 'docs/journals').trim();
+	// Journals outside the repo (network share, Google Drive…) are never staged: nothing to trail.
+	if (/^~(?=$|[\\/])/.test(raw)) return;
+	const base = path.relative(root, path.resolve(root, raw));
+	if (base === '..' || base.startsWith(`..${path.sep}`) || path.isAbsolute(base)) return;
+	const project = String(config.project ?? '')
+		.split(/[\\/]+/)
+		.filter((s) => s && s !== '.' && s !== '..')
+		.join('/');
+	const dir = [base.split(path.sep).join('/'), project].filter(Boolean).join('/');
 	const staged = execFileSync('git', ['diff', '--cached', '--name-only', '--diff-filter=ACMR'], { cwd: root, encoding: 'utf8' })
 		.split(/\r?\n/)
 		.filter((f) => f.startsWith(`${dir}/`) && !f.slice(dir.length + 1).includes('/'));

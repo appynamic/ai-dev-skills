@@ -5,7 +5,9 @@
 // (hooks/hooks.json, via ${CLAUDE_PLUGIN_ROOT}). This script only touches what a plugin cannot
 // wire up by itself:
 //   node install.mjs [--dry-run] [--check] [--uninstall] [--hooks-only]
-//          [--dir <path>] [--verbosity <final|text|text+tools>] [--verbosity-web <…>]
+//          [--dir <path>] [--project <name>] [--verbosity <final|text|text+tools>] [--verbosity-web <…>]
+// A `--dir` outside the repo (network share, Google Drive…) goes to the git-ignored
+// .claude/journal.config.local.json — its absolute path is per machine; `--project` is shared.
 // Idempotent and reversible: every file written is delimited by markers, or is a config file
 // merged non-destructively, so --uninstall removes exactly what install added — and never
 // touches the journals themselves.
@@ -14,7 +16,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pluginInstallProblems } from './journal-lib.mjs';
+import { pluginInstallProblems, resolveJournalDir } from './journal-lib.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = path.resolve(SCRIPT_DIR, '..');
@@ -65,13 +67,28 @@ function projectConfigPath(root) {
 	return path.join(root, '.claude', 'journal.config.json');
 }
 
-/** @param {string} root */
-function loadConfig(root) {
+/** Per-machine overrides (git-ignored): where a `dir` outside the repo — whose absolute path differs per OS — goes. @param {string} root */
+function localConfigPath(root) {
+	return path.join(root, '.claude', 'journal.config.local.json');
+}
+
+/** @param {string} file */
+function readJson(file) {
 	try {
-		return JSON.parse(read(projectConfigPath(root)) ?? '{}');
+		return JSON.parse(read(file) ?? '{}');
 	} catch {
 		return {};
 	}
+}
+
+/** @param {string} root */
+function loadConfig(root) {
+	return readJson(projectConfigPath(root));
+}
+
+/** Shared config with this machine's overrides on top, as journal.mjs sees it. @param {string} root */
+function effectiveConfig(root) {
+	return { ...loadConfig(root), ...readJson(localConfigPath(root)) };
 }
 
 /**
@@ -216,11 +233,13 @@ export function installGitHook(root, opts = {}) {
 
 // ─── text files ───────────────────────────────────────────────────────────────
 
-/** @param {string} root @param {string} dirRel @param {Opts & { uninstall?: boolean }} opts */
-function installGitattributes(root, dirRel, opts) {
+/** @typedef {ReturnType<typeof resolveJournalDir>} JournalDir */
+
+/** @param {string} root @param {JournalDir} jd @param {Opts & { uninstall?: boolean }} opts */
+function installGitattributes(root, jd, opts) {
 	const file = path.join(root, '.gitattributes');
 	const prev = read(file) ?? '';
-	const block = ['.githooks/* text eol=lf', `${GIT_HOOK_SCRIPT_REL} text eol=lf`, '.claude/journal.config.json text eol=lf', `${dirRel}/*.md text eol=lf`].join('\n');
+	const block = ['.githooks/* text eol=lf', `${GIT_HOOK_SCRIPT_REL} text eol=lf`, '.claude/journal.config.json text eol=lf', ...(jd.dirRel ? [`${jd.dirRel}/*.md text eol=lf`] : [])].join('\n');
 	const next = upsertBlock(prev.replace(/\r\n/g, '\n'), BLOCK_START, BLOCK_END, opts.uninstall ? null : block);
 	if (opts.uninstall && !next.trim() && read(file) !== null) {
 		log(opts, `  - .gitattributes${opts.dryRun ? ' (dry-run)' : ''}`);
@@ -238,7 +257,7 @@ function installGitignore(root, opts) {
 	// must not sweep it in next to journal.config.json (which IS meant to be shared/committed).
 	// journal-discarded is per-machine session state (ids of sessions dropped with `discard`).
 	const outside = upsertBlock(prev, BLOCK_START, BLOCK_END, null);
-	const wanted = ['.claude/settings.local.json', '.claude/journal-errors.log', '.claude/journal-discarded'].filter((l) => !outside.split('\n').some((x) => x.trim() === l));
+	const wanted = ['.claude/settings.local.json', '.claude/journal.config.local.json', '.claude/journal-errors.log', '.claude/journal-discarded'].filter((l) => !outside.split('\n').some((x) => x.trim() === l));
 	const next = upsertBlock(prev, BLOCK_START, BLOCK_END, opts.uninstall || !wanted.length ? null : wanted.join('\n'));
 	if (!opts.uninstall && !wanted.length && !prev.includes(BLOCK_START)) return log(opts, '  = .gitignore');
 	apply(file, next, opts, '.gitignore');
@@ -266,51 +285,70 @@ function installPackageJson(root, usesGithooksDir, opts) {
 	apply(file, `${JSON.stringify(pkg, null, indent)}\n`, opts, 'package.json (prepare)');
 }
 
-/** @param {string} root @param {string} dirRel @param {Opts & { uninstall?: boolean }} opts */
-function installClaudeMd(root, dirRel, opts) {
+/** @param {string} root @param {JournalDir} jd @param {Opts & { uninstall?: boolean }} opts */
+function installClaudeMd(root, jd, opts) {
 	const file = path.join(root, 'CLAUDE.md');
 	const prev = read(file);
 	if (prev === null && opts.uninstall) return;
-	const section = (read(path.join(TEMPLATES, 'claude-md-section.md')) ?? '').replaceAll('{{dir}}', dirRel).replace(/\r\n/g, '\n');
+	const section = (read(path.join(TEMPLATES, 'claude-md-section.md')) ?? '').replaceAll('{{dir}}', jd.label).replace(/\r\n/g, '\n');
 	const next = upsertBlock((prev ?? '').replace(/\r\n/g, '\n'), MD_START, MD_END, opts.uninstall ? null : section);
 	apply(file, next, opts, 'CLAUDE.md (section Journal)');
 }
 
-/** @param {string} root @param {string} dirRel @param {Opts & { uninstall?: boolean }} opts */
-function installJournalsReadme(root, dirRel, opts) {
+/** @param {JournalDir} jd @param {Opts & { uninstall?: boolean }} opts */
+function installJournalsReadme(jd, opts) {
 	if (opts.uninstall) return;
-	const file = path.join(root, dirRel, 'README.md');
-	if (read(file) !== null) return log(opts, `  = ${dirRel}/README.md`);
-	apply(file, (read(path.join(TEMPLATES, 'journals-README.md')) ?? '').replaceAll('{{dir}}', dirRel), opts, `${dirRel}/README.md`);
+	const file = path.join(jd.dir, 'README.md');
+	const label = jd.external ? file : `${jd.dirRel}/README.md`;
+	if (read(file) !== null) return log(opts, `  = ${label}`);
+	apply(file, (read(path.join(TEMPLATES, 'journals-README.md')) ?? '').replaceAll('{{dir}}', jd.label), opts, label);
 }
 
-/** Project-level overrides — shared/committed, unlike settings.local.json. @param {string} root @param {Opts & { uninstall?: boolean, dir?: string, verbosity?: string, verbosityWeb?: string }} opts */
+/**
+ * Project-level overrides — shared/committed, unlike settings.local.json. A `dir` outside the repo
+ * is machine-specific (`G:\…` on Windows, `~/Library/CloudStorage/…` on Mac): it goes to the
+ * git-ignored local config instead, and is dropped from the shared one.
+ * @param {string} root @param {Opts & { uninstall?: boolean, dir?: string, project?: string, verbosity?: string, verbosityWeb?: string }} opts
+ */
 function installConfig(root, opts) {
 	const file = projectConfigPath(root);
+	const localFile = localConfigPath(root);
 	if (opts.uninstall) {
-		if (read(file) !== null) {
-			log(opts, `  - .claude/journal.config.json${opts.dryRun ? ' (dry-run)' : ''}`);
-			if (!opts.dryRun) fs.rmSync(file);
+		for (const [f, label] of [[file, '.claude/journal.config.json'], [localFile, '.claude/journal.config.local.json']]) {
+			if (read(f) === null) continue;
+			log(opts, `  - ${label}${opts.dryRun ? ' (dry-run)' : ''}`);
+			if (!opts.dryRun) fs.rmSync(f);
 		}
 		return;
 	}
-	if (!opts.dir && !opts.verbosity && !opts.verbosityWeb) return;
+	if (!opts.dir && opts.project === undefined && !opts.verbosity && !opts.verbosityWeb) return;
 	const cfg = loadConfig(root);
-	if (opts.dir) cfg.dir = opts.dir;
+	const external = opts.dir ? resolveJournalDir(root, { dir: opts.dir }, os.homedir()).external : false;
+	if (opts.dir && !external) cfg.dir = opts.dir;
+	if (external) delete cfg.dir;
+	if (opts.project !== undefined) cfg.project = opts.project;
 	if (opts.verbosity || opts.verbosityWeb) cfg.verbosity = { ...(typeof cfg.verbosity === 'object' ? cfg.verbosity : {}), ...(opts.verbosity ? { default: opts.verbosity } : {}), ...(opts.verbosityWeb ? { web: opts.verbosityWeb } : {}) };
-	apply(file, `${JSON.stringify(cfg, null, '\t')}\n`, opts, '.claude/journal.config.json');
+	if (Object.keys(cfg).length || read(file) !== null) apply(file, `${JSON.stringify(cfg, null, '\t')}\n`, opts, '.claude/journal.config.json');
+	if (!opts.dir) return;
+	const local = readJson(localFile);
+	if (external) local.dir = opts.dir;
+	else delete local.dir;
+	if (Object.keys(local).length || read(localFile) !== null) apply(localFile, Object.keys(local).length ? `${JSON.stringify(local, null, '\t')}\n` : '', { ...opts, uninstall: !Object.keys(local).length }, '.claude/journal.config.local.json');
 }
 
 // ─── check ────────────────────────────────────────────────────────────────────
 
-/** @param {string} root @param {string} dirRel */
-function check(root, dirRel) {
+/** @param {string} root @param {JournalDir} jd */
+function check(root, jd) {
 	const problems = [];
-	const paths = [GIT_HOOK_SCRIPT_REL, '.claude/journal.config.json', '.githooks/prepare-commit-msg', `${dirRel}/README.md`, `${dirRel}/2000-01-01--001-probe.md`, `${dirRel}/plan-probe.md`];
+	const dirPaths = jd.dirRel ? [`${jd.dirRel}/README.md`, `${jd.dirRel}/2000-01-01--001-probe.md`, `${jd.dirRel}/plan-probe.md`] : [];
+	const paths = [GIT_HOOK_SCRIPT_REL, '.claude/journal.config.json', '.githooks/prepare-commit-msg', ...dirPaths];
 	for (const p of paths) {
 		const hit = tryGit(root, ['check-ignore', '--no-index', '-v', p]);
 		if (hit) problems.push(`git-ignored: ${p}  ←  ${hit}`);
 	}
+	if (jd.external) problems.push(...externalDirProblems(jd));
+	if (jd.external && !readJson(localConfigPath(root)).dir) problems.push('`dir` outside the repo is in the shared journal.config.json: move it to .claude/journal.config.local.json (its path differs per machine)');
 	if (!read(path.join(root, GIT_HOOK_SCRIPT_REL))) problems.push(`${GIT_HOOK_SCRIPT_REL} missing`);
 	const { dir } = resolveHookDir(root);
 	const hook = read(path.join(dir, 'prepare-commit-msg'));
@@ -320,6 +358,24 @@ function check(root, dirRel) {
 	if (local === null && fs.existsSync(path.join(root, '.claude', 'settings.local.json'))) problems.push('.claude/settings.local.json is not git-ignored (risk of committing it)');
 	problems.push(...installScopeProblems(root));
 	return problems;
+}
+
+/**
+ * A share that is offline, or a Drive not yet synced/mounted, fails silently in the hooks (errors
+ * only reach journal-errors.log): probe it for real. The base `dir` must already exist — creating
+ * it would hide a typo or an unmounted volume (`/Volumes/…` would be created on the local disk).
+ * @param {JournalDir} jd
+ */
+function externalDirProblems(jd) {
+	if (!fs.existsSync(jd.base)) return [`journals dir not found: ${jd.base} (share offline, drive not mounted, or typo?)`];
+	const probe = path.join(jd.base, `.journal-probe-${process.pid}`);
+	try {
+		fs.writeFileSync(probe, '');
+		fs.rmSync(probe);
+	} catch (err) {
+		return [`journals dir not writable: ${jd.base} (${err instanceof Error ? err.message : String(err)})`];
+	}
+	return [];
 }
 
 /** @param {string} root */
@@ -346,16 +402,17 @@ function parseArgs(argv) {
 	const verbosity = val('--verbosity');
 	const verbosityWeb = val('--verbosity-web');
 	for (const v of [verbosity, verbosityWeb]) if (v && !levels.includes(v)) throw new Error(`invalid verbosity: ${v} (${levels.join(' | ')})`);
-	return { dryRun: argv.includes('--dry-run'), check: argv.includes('--check'), uninstall: argv.includes('--uninstall'), hooksOnly: argv.includes('--hooks-only'), quiet: argv.includes('--quiet'), dir: val('--dir'), verbosity, verbosityWeb };
+	return { dryRun: argv.includes('--dry-run'), check: argv.includes('--check'), uninstall: argv.includes('--uninstall'), hooksOnly: argv.includes('--hooks-only'), quiet: argv.includes('--quiet'), dir: val('--dir'), project: val('--project'), verbosity, verbosityWeb };
 }
 
 function main() {
 	const opts = parseArgs(process.argv.slice(2));
 	const root = tryGit(process.cwd(), ['rev-parse', '--show-toplevel']) ?? process.cwd();
 	if (opts.hooksOnly) return installGitHook(root, { quiet: true });
-	const dirRel = String(opts.dir ?? loadConfig(root).dir ?? 'docs/journals').replace(/\\/g, '/').replace(/\/$/, '');
+	const cfg = effectiveConfig(root);
+	const jd = resolveJournalDir(root, { dir: opts.dir ?? cfg.dir, project: opts.project ?? cfg.project }, os.homedir());
 	if (opts.check) {
-		const problems = check(root, dirRel);
+		const problems = check(root, jd);
 		if (problems.length) {
 			process.stdout.write(`✗ ${problems.length} problem(s):\n${problems.map((p) => `  - ${p}`).join('\n')}\n`);
 			process.exitCode = 1;
@@ -371,11 +428,13 @@ function main() {
 	const usesGithooksDir = path.resolve(resolveHookDir(root).dir) === path.resolve(root, '.githooks');
 	installConfig(root, opts);
 	installGitHook(root, opts);
-	installGitattributes(root, dirRel, opts);
+	installGitattributes(root, jd, opts);
 	installGitignore(root, opts);
 	installPackageJson(root, usesGithooksDir, opts);
-	installClaudeMd(root, dirRel, opts);
-	installJournalsReadme(root, dirRel, opts);
+	installClaudeMd(root, jd, opts);
+	const dirProblems = jd.external && !opts.uninstall ? externalDirProblems(jd) : [];
+	for (const p of dirProblems) log(opts, `⚠ ${p}`);
+	if (!dirProblems.length) installJournalsReadme(jd, opts);
 	// Surfaced right away rather than only on --check: a wrong install scope is the one setup
 	// failure that leaves no trace at all (no hook runs, so nothing reaches journal-errors.log).
 	if (!opts.uninstall) for (const p of installScopeProblems(root)) log(opts, `⚠ ${p}`);

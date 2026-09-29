@@ -269,6 +269,17 @@ describe('commit guard', () => {
 		assert.ok(lib.isGitCommit('GIT_AUTHOR_NAME=a git -c user.name=b commit -F msg.txt'));
 		assert.ok(!lib.isGitCommit('git log --grep commit'));
 		assert.ok(!lib.isGitCommit('echo "git commit"x'));
+	});
+
+	it('finds where each commit runs (cd, pushd, Set-Location, git -C, variables)', () => {
+		assert.deepEqual(lib.commitDirs('git add -A && git commit -m x'), [[]]);
+		assert.deepEqual(lib.commitDirs('cd ../other && git commit -m x'), [['../other']]);
+		assert.deepEqual(lib.commitDirs('git -C "C:/www/other app" commit -m x'), [['C:/www/other app']]);
+		assert.deepEqual(lib.commitDirs('S="/tmp/scratch"; cd "$S/e2e/app" && git init -q . && git commit -m init'), [['/tmp/scratch/e2e/app']]);
+		assert.deepEqual(lib.commitDirs('$d = "C:\\tmp"; Set-Location -Path $d; git commit -m x'), [['C:\\tmp']]);
+		assert.deepEqual(lib.commitDirs('cd ~/code/app && git commit -m x', { HOME: '/Users/n' }), [['/Users/n/code/app']]);
+		assert.deepEqual(lib.commitDirs('cd $UNKNOWN && git commit -m x'), [null]);
+		assert.deepEqual(lib.commitDirs('(cd sub && git -C inner commit -m x)'), [['sub', 'inner']]);
 		assert.ok(lib.isAmendNoEdit('git commit --amend --no-edit'));
 	});
 
@@ -331,5 +342,28 @@ describe('plugin install scope', () => {
 	it('accepts a project-only install elsewhere, where paths are case-exact', () => {
 		assert.deepEqual(lib.pluginInstallProblems(inst(at('/repo/')), '/repo', 'linux'), []);
 		assert.equal(lib.pluginInstallProblems(inst(at('/Repo')), '/repo', 'darwin').length, 1);
+	});
+});
+
+describe('journal dir', () => {
+	const W = String.raw;
+	const pick = (/** @type {ReturnType<typeof lib.resolveJournalDir>} */ r) => ({ dir: r.dir, dirRel: r.dirRel, label: r.label, external: r.external });
+
+	it('keeps a relative dir inside the repo, with an optional project subfolder', () => {
+		assert.deepEqual(pick(lib.resolveJournalDir(W`C:\www\app`, {}, W`C:\Users\n`)), { dir: W`C:\www\app\docs\journals`, dirRel: 'docs/journals', label: 'docs/journals', external: false });
+		assert.deepEqual(pick(lib.resolveJournalDir('/Users/n/app', { dir: 'docs/journals/', project: 'api' }, '/Users/n')), { dir: '/Users/n/app/docs/journals/api', dirRel: 'docs/journals/api', label: 'docs/journals/api', external: false });
+	});
+
+	it('puts journals of a shared dir in a per-repo subfolder (Windows drive, UNC, ../)', () => {
+		assert.deepEqual(pick(lib.resolveJournalDir(W`C:\www\app`, { dir: W`G:\Mon Drive\journals` }, W`C:\Users\n`)), { dir: W`G:\Mon Drive\journals\app`, dirRel: null, label: 'app', external: true });
+		assert.equal(lib.resolveJournalDir(W`C:\www\app`, { dir: W`\\nas\equipe\journals`, project: 'client/app' }, W`C:\Users\n`).dir, W`\\nas\equipe\journals\client\app`);
+		assert.equal(lib.resolveJournalDir(W`C:\www\app`, { dir: '../journals' }, W`C:\Users\n`).dir, W`C:\www\journals\app`);
+		assert.equal(lib.resolveJournalDir(W`C:\www\app`, { dir: '~/Google Drive/journals' }, W`C:\Users\n`).dir, W`C:\Users\n\Google Drive\journals\app`);
+	});
+
+	it('expands ~ and handles Mac volumes; "" opts out of the subfolder, .. is ignored', () => {
+		assert.equal(lib.resolveJournalDir('/Users/n/app', { dir: '~/Library/CloudStorage/GoogleDrive-n/Mon Drive/journals' }, '/Users/n').dir, '/Users/n/Library/CloudStorage/GoogleDrive-n/Mon Drive/journals/app');
+		assert.deepEqual(pick(lib.resolveJournalDir('/Users/n/app', { dir: '/Volumes/equipe/journals', project: '' }, '/Users/n')), { dir: '/Volumes/equipe/journals', dirRel: null, label: '', external: true });
+		assert.equal(lib.resolveJournalDir('/Users/n/app', { dir: '/Volumes/j', project: '../../etc' }, '/Users/n').dir, '/Volumes/j/etc');
 	});
 });

@@ -8,10 +8,13 @@
 //
 // This plugin ships no per-project code (hooks load from hooks/hooks.json via ${CLAUDE_PLUGIN_ROOT},
 // so nothing needs copying into a consuming repo). The only thing that's per project is
-// `.claude/journal.config.json` (optional — `{ dir, locale, enforceCommit, verbosity, redact }`,
-// see DEFAULT_CONFIG in journal-lib.mjs), written by `install.mjs`/`/journal init`.
+// `.claude/journal.config.json` (optional — `{ dir, project, locale, enforceCommit, verbosity, redact }`,
+// see DEFAULT_CONFIG in journal-lib.mjs), written by `install.mjs`/`/journal init`, and its git-ignored
+// per-machine override `.claude/journal.config.local.json` (typically a `dir` on a network share or
+// a Google Drive, whose absolute path differs between Windows and Mac).
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import * as lib from './journal-lib.mjs';
 
@@ -37,25 +40,35 @@ function projectConfigPath(root) {
 	return path.join(root, '.claude', 'journal.config.json');
 }
 
-/** @param {string} root @returns {lib.JournalConfig} */
-function loadConfig(root) {
+/** @param {string} file @returns {Record<string, any>} */
+function readJson(file) {
 	try {
-		const raw = JSON.parse(fs.readFileSync(projectConfigPath(root), 'utf8'));
-		return { ...lib.DEFAULT_CONFIG, ...raw, verbosity: typeof raw.verbosity === 'string' ? raw.verbosity : { ...(/** @type {object} */ (lib.DEFAULT_CONFIG.verbosity)), ...raw.verbosity } };
+		return JSON.parse(fs.readFileSync(file, 'utf8'));
 	} catch {
-		return { ...lib.DEFAULT_CONFIG };
+		return {};
 	}
+}
+
+/** Shared config, then this machine's own overrides on top. @param {string} root @returns {lib.JournalConfig} */
+function loadConfig(root) {
+	const shared = readJson(projectConfigPath(root));
+	const local = readJson(path.join(root, '.claude', 'journal.config.local.json'));
+	const raw = { ...shared, ...local };
+	const obj = (/** @type {unknown} */ v) => (typeof v === 'object' && v ? v : {});
+	const verbosity = typeof raw.verbosity === 'string' ? raw.verbosity : { ...obj(lib.DEFAULT_CONFIG.verbosity), ...obj(shared.verbosity), ...obj(local.verbosity) };
+	return { ...lib.DEFAULT_CONFIG, ...raw, verbosity };
 }
 
 /** @param {any} [input] */
 function context(input) {
 	const root = projectRoot(input);
 	const config = loadConfig(root);
-	const dirRel = config.dir.replace(/\\/g, '/').replace(/\/$/, '');
-	const dir = path.join(root, dirRel);
+	const { dir, dirRel, label, external } = lib.resolveJournalDir(root, config, os.homedir());
 	const labels = lib.labelsFor(config.locale);
 	const verbosity = lib.resolveVerbosity(config, process.env);
-	return { root, config, dirRel, dir, labels, verbosity };
+	// Journals edited by Claude are not "files touched" by the turn; outside the repo they can't be anyway.
+	const excludeDirs = dirRel ? [dirRel] : [];
+	return { root, config, dirRel, dir, label, external, excludeDirs, labels, verbosity };
 }
 /** @typedef {ReturnType<typeof context>} Ctx */
 
@@ -144,7 +157,7 @@ function readTranscript(file) {
 
 /** @param {Ctx} ctx @param {string} name */
 function rel(ctx, name) {
-	return `${ctx.dirRel}/${name}`;
+	return ctx.label ? `${ctx.label}/${name}` : name;
 }
 
 /** @param {Ctx} ctx @param {string} name */
@@ -211,7 +224,7 @@ async function hookSession(ctx, input) {
 		.sort((a, b) => b.mtime - a.mtime)
 		.slice(0, 5)
 		.map((f) => `- ${f.name} — ${(read(path.join(ctx.dir, f.name)).match(/^# (.*)$/m) ?? [])[1] ?? ''}`);
-	const lines = [`Journal auto actif (${ctx.dirRel}, verbosité ${ctx.verbosity}).`];
+	const lines = [`Journal auto actif (${ctx.external ? ctx.dir : ctx.dirRel}, verbosité ${ctx.verbosity}).`];
 	if (sid && isDiscarded(ctx, sid)) lines.push('Session écartée du journal (`/journal discard`) : rien n’est journalisé — `/journal resume` pour reprendre.');
 	else if (own) lines.push(`Journal de cette session : ${rel(ctx, own)}.`);
 	else if (recent.length) lines.push('Journaux récents — si cette session continue une de ces features, propose `/journal use <slug>` :', ...recent);
@@ -232,7 +245,7 @@ function hookPrompt(ctx, input) {
 	if (lib.hasPendingReply(content)) {
 		const turn = lib.previousTurn(readTranscript(input.transcript_path), text);
 		const blocks = lib.extractAssistantBlocks(turn, ctx.verbosity);
-		const files = lib.turnTouchedFiles(turn, ctx.root, [ctx.dirRel]);
+		const files = lib.turnTouchedFiles(turn, ctx.root, ctx.excludeDirs);
 		appendBlock(file, lib.renderReply({ time: lib.localTime(), blocks: redactBlocks(ctx, blocks), files, interrupted: blocks.length > 0, labels: ctx.labels }));
 		content = read(file);
 	}
@@ -256,7 +269,7 @@ function hookStop(ctx, input) {
 	if (lib.isPaused(content, sid) || !lib.hasPendingReply(content)) return;
 	const turn = lib.currentTurn(readTranscript(input.transcript_path));
 	const blocks = lib.reconcileLastMessage(lib.extractAssistantBlocks(turn, ctx.verbosity), input.last_assistant_message, ctx.verbosity);
-	const files = lib.turnTouchedFiles(turn, ctx.root, [ctx.dirRel]);
+	const files = lib.turnTouchedFiles(turn, ctx.root, ctx.excludeDirs);
 	appendBlock(file, lib.renderReply({ time: lib.localTime(), blocks: redactBlocks(ctx, blocks), files, labels: ctx.labels }));
 }
 
@@ -334,18 +347,47 @@ function renameJournal(ctx, name, title, forcedSlug) {
 function move(ctx, from, to) {
 	const a = path.join(ctx.dir, from);
 	const b = path.join(ctx.dir, to);
-	try {
-		git(ctx.root, ['ls-files', '--error-unmatch', rel(ctx, from)]);
-		git(ctx.root, ['mv', rel(ctx, from), rel(ctx, to)]);
-	} catch {
-		fs.renameSync(a, b);
+	if (!ctx.external) {
+		try {
+			git(ctx.root, ['ls-files', '--error-unmatch', rel(ctx, from)]);
+			git(ctx.root, ['mv', rel(ctx, from), rel(ctx, to)]);
+			return;
+		} catch {
+			// untracked: plain rename
+		}
 	}
+	fs.renameSync(a, b);
+}
+
+/** @param {string} p */
+function samePath(p) {
+	const r = path.resolve(p);
+	return process.platform === 'win32' || process.platform === 'darwin' ? r.toLowerCase() : r;
+}
+
+/**
+ * Does one of the command's commits land in this project's repo? A `cd other-repo && git commit`
+ * (or `git -C other-repo commit`) is none of this journal's business. An unresolvable target
+ * (unknown variable) counts as elsewhere: better miss a trailer than block a foreign commit.
+ * @param {Ctx} ctx @param {string} command @param {string | undefined} cwd
+ */
+function commitsHere(ctx, command, cwd) {
+	const own = samePath(ctx.root);
+	return lib.commitDirs(command, process.env).some((parts) => {
+		if (!parts) return false;
+		const target = path.resolve(cwd ?? ctx.root, ...parts);
+		const top = fs.existsSync(target) ? gitRoot(target) : null;
+		if (top) return samePath(top) === own;
+		// Not created yet (mkdir + git init in the same command): judge by the path itself.
+		const rel = path.relative(own, samePath(target));
+		return !rel.startsWith('..') && !path.isAbsolute(rel);
+	});
 }
 
 /** @param {Ctx} ctx @param {any} input */
 function hookPrecommit(ctx, input) {
 	const command = String(input?.tool_input?.command ?? '');
-	if (!lib.isGitCommit(command)) return;
+	if (!lib.isGitCommit(command) || !commitsHere(ctx, command, input?.cwd)) return;
 	const sid = input?.session_id;
 	const name = sid ? findJournal(ctx, sid) : null;
 	if (!name || lib.isPaused(read(path.join(ctx.dir, name)), sid)) return;
@@ -355,7 +397,7 @@ function hookPrecommit(ctx, input) {
 	// Auto-staging is only for the web sandbox, where anything left uncommitted dies with it.
 	// Locally this skill never runs `git add`/`git commit` on its own initiative — this hook is a
 	// safety net for whatever commit ends up happening (yours, or Claude's on your explicit request).
-	if (lib.isWebEnv(process.env)) {
+	if (lib.isWebEnv(process.env) && !ctx.external) {
 		try {
 			git(ctx.root, ['add', '--', journalRel, ...(planRel ? [planRel] : [])]);
 		} catch (err) {
@@ -385,7 +427,7 @@ function cmdStatus(ctx, args) {
 	const name = findJournal(ctx, sid);
 	const plan = name ? planOf(ctx, name) : null;
 	const content = name ? read(path.join(ctx.dir, name)) : '';
-	const out = { session: sid, journal: name ? rel(ctx, name) : null, plan: plan ? rel(ctx, plan) : null, draft: name ? Boolean(lib.parseJournalFileName(name)?.draft) : null, paused: name ? lib.isPaused(content, sid) : false, discarded: isDiscarded(ctx, sid), verbosity: ctx.verbosity, machine: machine() };
+	const out = { session: sid, dir: ctx.dir, journal: name ? rel(ctx, name) : null, plan: plan ? rel(ctx, plan) : null, draft: name ? Boolean(lib.parseJournalFileName(name)?.draft) : null, paused: name ? lib.isPaused(content, sid) : false, discarded: isDiscarded(ctx, sid), verbosity: ctx.verbosity, machine: machine() };
 	process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
 }
 
@@ -552,7 +594,7 @@ function cmdBackfill(ctx, args) {
 		const interrupted = turn.some((e) => e.type === 'user' && /\[Request interrupted/.test(JSON.stringify(e.message?.content ?? '')));
 		const blocks = redactBlocks(ctx, lib.extractAssistantBlocks(turn, verbosity));
 		const lastTs = [...turn].reverse().find((e) => e.type === 'assistant' && e.timestamp)?.timestamp;
-		chunks.push(lib.renderReply({ time: lib.localTime(lastTs ? new Date(lastTs) : new Date()), blocks, files: lib.turnTouchedFiles(turn, ctx.root, [ctx.dirRel]), interrupted: interrupted && blocks.length > 0, labels: ctx.labels }));
+		chunks.push(lib.renderReply({ time: lib.localTime(lastTs ? new Date(lastTs) : new Date()), blocks, files: lib.turnTouchedFiles(turn, ctx.root, ctx.excludeDirs), interrupted: interrupted && blocks.length > 0, labels: ctx.labels }));
 	}
 
 	const featureTitle = title ?? (approvedPlan ? planTitle(approvedPlan) : `${ctx.labels.draft} ${sid.slice(0, 8)}`);

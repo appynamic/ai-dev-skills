@@ -30,14 +30,14 @@ Take the first word of the arguments:
 | `init` | Set up the journal in this project (see "Setup"). |
 | anything else | It's a title: `journal.mjs rename <title>`. Date and NNN are kept, only the slug changes (the plan file follows). |
 
-The journals directory is `dir` in `.claude/journal.config.json` (project-level, optional; default `docs/journals`).
+The journals directory is `dir` in `.claude/journal.config.json` (project-level, optional; default `docs/journals`), plus the optional `project` subfolder. `dir` may also live outside the repo (network share, Google Drive) — then it is set per machine in `.claude/journal.config.local.json` and `project` defaults to the repo name. Wherever this skill says `<dir>`, use the absolute `dir` from `journal.mjs status`.
 
 ## Setup (`/journal init`)
 
 Run once per project (idempotent — safe to run again after a config change).
 
-1. Ask: journals directory (default `docs/journals`), default verbosity locally (default `final`) and on Claude Code web (default `text+tools`).
-2. `node "${CLAUDE_PLUGIN_ROOT}/skills/journal/scripts/install.mjs" --dry-run [--dir <path>] [--verbosity <v>] [--verbosity-web <v>]`, show the result.
+1. Ask: journals directory (default `docs/journals`; or a shared folder outside the repo — network share `\\server\share\journals` / `/Volumes/share/journals`, Google Drive `G:\My Drive\journals` / `~/Library/CloudStorage/GoogleDrive-…/My Drive/journals`), for a shared folder the project subfolder (default: repo name), default verbosity locally (default `final`) and on Claude Code web (default `text+tools`).
+2. `node "${CLAUDE_PLUGIN_ROOT}/skills/journal/scripts/install.mjs" --dry-run [--dir <path>] [--project <name>] [--verbosity <v>] [--verbosity-web <v>]`, show the result. A shared `dir` is written to the git-ignored `.claude/journal.config.local.json`: each teammate/machine runs `init --dir <their path>` once.
 3. Same command without `--dry-run`, then `install.mjs --check`. If it warns about the install scope, relay the fix as-is (`claude plugin install journal@ai-dev-skills --scope user`): on Windows a project-scope install is invisible to sessions opened with the other drive-letter case (terminal `C:` vs VS Code `c:`).
 4. Remind: verify the plugin is enabled with `/plugin`, then start a **new session** — hooks load at session start, so the current one won't journal until the next one.
 

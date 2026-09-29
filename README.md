@@ -65,7 +65,7 @@ This asks for the journals directory (default `docs/journals`) and the verbosity
 
 | File | Why |
 | --- | --- |
-| `.claude/journal.config.json` | project settings: `dir`, `locale`, `enforceCommit`, `verbosity`, `redact` — committed, shared by the team |
+| `.claude/journal.config.json` | project settings: `dir`, `project`, `locale`, `enforceCommit`, `verbosity`, `redact` — committed, shared by the team (`journal.config.local.json` next to it: per-machine overrides, git-ignored) |
 | `.claude/journal-git-hook.mjs` | self-contained trailer logic for **manual** commits (GitHub Desktop, terminal, CI) — committed, works even where the plugin isn't installed |
 | `.githooks/prepare-commit-msg` (or appended to an existing hook, e.g. husky's) | the actual git hook, wired via `core.hooksPath` |
 | `.gitattributes`, `.gitignore` | LF for the hook files; ignores `.claude/settings.local.json` and `.claude/journal-errors.log` |
@@ -97,13 +97,56 @@ A plugin's hooks (`plugins/journal/hooks/hooks.json`) load automatically once th
 }
 ```
 
-- `dir` — where journals live.
+- `dir` — where journals live. Relative = inside the repo, committed with it. Absolute, `~/…` or `../…` = outside the repo, to centralise journals of several repos on a network share or a synced drive (Windows `G:\My Drive\journals`, `\\server\share\journals`; Mac `~/Library/CloudStorage/GoogleDrive-…/My Drive/journals`, `/Volumes/share/journals`). Since that path differs per machine, put it in the git-ignored `.claude/journal.config.local.json` (`/journal init --dir <path>` does this), which overrides the shared file. Outside the repo, journals are not committed: trailers read `Journal: <project>/<file>` and nothing is auto-staged on web.
+- `project` — subfolder of `dir` for this repo. Defaults to the repo folder name when `dir` is outside the repo (`""` = no subfolder), none otherwise.
 - `locale` — `fr` or `en`, for the labels ("Claude demande"/"Claude asks", "Synthèse"/"Synthesis"…).
 - `enforceCommit` — `false` disables the refuse-incomplete-commit guard; the journal still gets staged on web.
 - `verbosity` — see below.
 - `redact` — extra regexes (as strings) to mask, on top of the built-in JWT/API-key/`password=`/private-key patterns.
 
 Change `dir` or verbosity later with `/journal init` again, or `/journal verbosity <level> [--web]` for verbosity alone.
+
+### Shared journals folder (network share, Google Drive)
+
+To centralise every repo's journals in one folder outside the repos, e.g. a team Google Drive:
+
+`.claude/journal.config.json` — committed, same for everyone:
+
+```json
+{
+	"project": "acme/web-shop"
+}
+```
+
+`.claude/journal.config.local.json` — git-ignored, one per machine (only `dir` differs):
+
+```jsonc
+// Windows (Google Drive for desktop)
+{ "dir": "G:\\Shared drives\\Dev\\journals" }
+// Windows (network share)
+{ "dir": "\\\\nas\\dev\\journals" }
+// Mac (Google Drive)
+{ "dir": "~/Library/CloudStorage/GoogleDrive-me@acme.com/Shared drives/Dev/journals" }
+// Mac (SMB share, mounted)
+{ "dir": "/Volumes/dev/journals" }
+```
+
+Or let `init` write both files: `/journal init --dir "G:\Shared drives\Dev\journals" --project acme/web-shop`. Each repo then gets its own subfolder:
+
+```
+journals/
+├── acme/
+│   ├── web-shop/
+│   │   ├── README.md
+│   │   ├── 2026-09-29--001-share-button.md
+│   │   └── plan-share-button.md
+│   └── api/
+│       └── 2026-09-28--001-rate-limit.md
+└── internal-tools/          ← no `project` set: the repo folder name
+    └── 2026-09-27--001-backup-script.md
+```
+
+Commit trailers point there portably: `Journal: acme/web-shop/2026-09-29--001-share-button.md`. `install.mjs --check` warns when the folder is missing or not writable (share offline, drive not mounted). While it is unreachable, hooks can't write: those turns end up only in `.claude/journal-errors.log`, never blocking the session.
 
 ### Verbosity
 
