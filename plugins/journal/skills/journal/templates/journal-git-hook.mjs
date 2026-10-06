@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // Written into the consuming project by the journal Claude Code plugin
-// (https://github.com/appynamic/ai-dev-skills) via `/journal init`, at `.claude/journal-git-hook.mjs`.
+// (https://github.com/appynamic/ai-dev-skills) via `/journal init`, at `.claude/journal-git-hook.mjs`
+// (Claude Code) or `.agents/journal-git-hook.mjs` (Antigravity) — next to the journal config it reads.
 //
 // Adds `Journal:` / `Plan:` trailers to a commit message when a journal file is staged. Committed
 // with the project on purpose: a git hook must keep working on any machine, whether or not the
@@ -12,6 +13,10 @@
 import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+// The config lives next to this script: .claude/ or .agents/.
+const CONFIG_DIR = path.dirname(fileURLToPath(import.meta.url));
 
 const JOURNAL_RE = /^(\d{4}-\d{2}-\d{2})--(\d{3})-(.+)\.md$/;
 const TRAILER_RE = /^[A-Za-z][\w-]*: \S/;
@@ -52,7 +57,7 @@ function main() {
 	const config = {};
 	for (const name of ['journal.config.json', 'journal.config.local.json']) {
 		try {
-			Object.assign(config, JSON.parse(fs.readFileSync(path.join(root, '.claude', name), 'utf8')));
+			Object.assign(config, JSON.parse(fs.readFileSync(path.join(CONFIG_DIR, name), 'utf8')));
 		} catch {
 			// optional
 		}

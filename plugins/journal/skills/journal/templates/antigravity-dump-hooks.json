@@ -1,0 +1,10 @@
+{
+	"journal-dump": {
+		"enabled": true,
+		"PreToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node C:/www/rd/ai-dev-skills/plugins/journal/skills/journal/scripts/journal.mjs dump PreToolUse", "timeout": 30 }] }],
+		"PostToolUse": [{ "matcher": "*", "hooks": [{ "type": "command", "command": "node C:/www/rd/ai-dev-skills/plugins/journal/skills/journal/scripts/journal.mjs dump PostToolUse", "timeout": 30 }] }],
+		"PreInvocation": [{ "type": "command", "command": "node C:/www/rd/ai-dev-skills/plugins/journal/skills/journal/scripts/journal.mjs dump PreInvocation", "timeout": 30 }],
+		"PostInvocation": [{ "type": "command", "command": "node C:/www/rd/ai-dev-skills/plugins/journal/skills/journal/scripts/journal.mjs dump PostInvocation", "timeout": 30 }],
+		"Stop": [{ "type": "command", "command": "node C:/www/rd/ai-dev-skills/plugins/journal/skills/journal/scripts/journal.mjs dump Stop", "timeout": 30 }]
+	}
+}

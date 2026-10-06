@@ -1,0 +1,4 @@
+{
+	"name": "journal",
+	"description": "Automatic dev journal — prompts, the approved plan and the agent's replies are written to docs/journals/ by hooks, nothing to type. Commit guard keeps every commit linked to its journal entry."
+}

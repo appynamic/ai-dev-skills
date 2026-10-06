@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // @ts-check
-// Entry point of the journal skill (github.com/appynamic/ai-dev-skills). Two families of commands:
+// Entry point of the journal skill (github.com/appynamic/ai-dev-skills), for Claude Code and
+// Antigravity (`--agent antigravity`, see agents/antigravity.mjs). Two families of commands:
 //   hooks (read a JSON payload on stdin): session | prompt | stop | tool | precommit
 //   CLI   (called by /journal or by hand): status | rename | use | pause | resume | discard | verbosity | table | backfill | help
 // Hook commands must never break a Claude Code session: every error is swallowed into
@@ -16,9 +17,39 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import * as agy from './agents/antigravity.mjs';
 import * as lib from './journal-lib.mjs';
 
 // ─── Context ──────────────────────────────────────────────────────────────────
+
+/** @typedef {'claude' | 'antigravity'} Agent */
+
+/**
+ * `--agent` wins (the hooks pass it); otherwise the payload or the environment tells: Antigravity
+ * hooks receive a `conversationId`, and its shells carry ANTIGRAVITY_CONVERSATION_ID.
+ * @param {string | undefined} flag @param {any} [input] @returns {Agent}
+ */
+function detectAgent(flag, input) {
+	if (flag === 'claude' || flag === 'antigravity') return flag;
+	if (input?.conversationId) return 'antigravity';
+	if (!process.env.CLAUDE_CODE_SESSION_ID && process.env.ANTIGRAVITY_CONVERSATION_ID) return 'antigravity';
+	return 'claude';
+}
+
+/**
+ * Where the project config (and the hooks' local state) lives: `.claude/` for Claude Code,
+ * `.agents/` for Antigravity — unless the project was only set up for Claude Code, in which case
+ * Antigravity shares that config rather than journaling with defaults.
+ * @param {string} root @param {Agent} agent
+ */
+function configDirFor(root, agent) {
+	if (agent === 'claude') return '.claude';
+	const has = (/** @type {string} */ d) => fs.existsSync(path.join(root, d, 'journal.config.json'));
+	return !has('.agents') && has('.claude') ? '.claude' : '.agents';
+}
+
+/** Error log location, set once the context is known (hooks may fail before that). */
+let errorConfigDir = '.claude';
 
 /** @param {string} cwd */
 function gitRoot(cwd) {
@@ -32,12 +63,15 @@ function gitRoot(cwd) {
 /** @param {any} [input] */
 function projectRoot(input) {
 	if (process.env.CLAUDE_PROJECT_DIR) return path.resolve(process.env.CLAUDE_PROJECT_DIR);
+	// Antigravity runs hooks from the dir holding hooks.json (the plugin's, possibly): only the payload knows the workspace.
+	const ws = Array.isArray(input?.workspacePaths) ? input.workspacePaths[0] : undefined;
+	if (typeof ws === 'string' && ws) return gitRoot(ws) ?? path.resolve(ws);
 	return gitRoot(input?.cwd ?? process.cwd()) ?? process.cwd();
 }
 
-/** @param {string} root */
-function projectConfigPath(root) {
-	return path.join(root, '.claude', 'journal.config.json');
+/** @param {string} root @param {string} configDir */
+function projectConfigPath(root, configDir) {
+	return path.join(root, configDir, 'journal.config.json');
 }
 
 /** @param {string} file @returns {Record<string, any>} */
@@ -49,26 +83,28 @@ function readJson(file) {
 	}
 }
 
-/** Shared config, then this machine's own overrides on top. @param {string} root @returns {lib.JournalConfig} */
-function loadConfig(root) {
-	const shared = readJson(projectConfigPath(root));
-	const local = readJson(path.join(root, '.claude', 'journal.config.local.json'));
+/** Shared config, then this machine's own overrides on top. @param {string} root @param {string} configDir @returns {lib.JournalConfig} */
+function loadConfig(root, configDir) {
+	const shared = readJson(projectConfigPath(root, configDir));
+	const local = readJson(path.join(root, configDir, 'journal.config.local.json'));
 	const raw = { ...shared, ...local };
 	const obj = (/** @type {unknown} */ v) => (typeof v === 'object' && v ? v : {});
 	const verbosity = typeof raw.verbosity === 'string' ? raw.verbosity : { ...obj(lib.DEFAULT_CONFIG.verbosity), ...obj(shared.verbosity), ...obj(local.verbosity) };
 	return { ...lib.DEFAULT_CONFIG, ...raw, verbosity };
 }
 
-/** @param {any} [input] */
-function context(input) {
+/** @param {any} [input] @param {Agent} [agent] */
+function context(input, agent = 'claude') {
 	const root = projectRoot(input);
-	const config = loadConfig(root);
+	const configDir = configDirFor(root, agent);
+	errorConfigDir = configDir;
+	const config = loadConfig(root, configDir);
 	const { dir, dirRel, label, external } = lib.resolveJournalDir(root, config, os.homedir());
 	const labels = lib.labelsFor(config.locale);
 	const verbosity = lib.resolveVerbosity(config, process.env);
 	// Journals edited by Claude are not "files touched" by the turn; outside the repo they can't be anyway.
 	const excludeDirs = dirRel ? [dirRel] : [];
-	return { root, config, dirRel, dir, label, external, excludeDirs, labels, verbosity };
+	return { agent, root, configDir, config, dirRel, dir, label, external, excludeDirs, labels, verbosity };
 }
 /** @typedef {ReturnType<typeof context>} Ctx */
 
@@ -98,7 +134,7 @@ function findJournal(ctx, sessionId) {
 
 /** @param {Ctx} ctx */
 function discardedPath(ctx) {
-	return path.join(ctx.root, '.claude', 'journal-discarded');
+	return path.join(ctx.root, ctx.configDir, 'journal-discarded');
 }
 
 /** @param {Ctx} ctx @param {string} sessionId */
@@ -172,7 +208,8 @@ function planOf(ctx, name) {
 function logError(root, err, extra) {
 	try {
 		const line = `[${new Date().toISOString()}] ${err instanceof Error ? (err.stack ?? err.message) : String(err)}${extra ? `\n  payload: ${JSON.stringify(extra).slice(0, 4000)}` : ''}\n`;
-		fs.appendFileSync(path.join(root, '.claude', 'journal-errors.log'), line, 'utf8');
+		fs.mkdirSync(path.join(root, errorConfigDir), { recursive: true });
+		fs.appendFileSync(path.join(root, errorConfigDir, 'journal-errors.log'), line, 'utf8');
 	} catch {
 		// nowhere left to report
 	}
@@ -202,8 +239,8 @@ function takeFlag(args, flag) {
 
 /** @param {string[]} args */
 function sessionFrom(args) {
-	const sid = takeFlag(args, '--session') ?? process.env.CLAUDE_CODE_SESSION_ID;
-	if (!sid) throw new Error('unknown session: pass --session <id> (or run from Claude Code, which sets CLAUDE_CODE_SESSION_ID)');
+	const sid = takeFlag(args, '--session') ?? process.env.CLAUDE_CODE_SESSION_ID ?? process.env.ANTIGRAVITY_CONVERSATION_ID;
+	if (!sid) throw new Error('unknown session: pass --session <id> (or run from Claude Code / Antigravity, which set CLAUDE_CODE_SESSION_ID / ANTIGRAVITY_CONVERSATION_ID)');
 	return sid;
 }
 
@@ -312,6 +349,7 @@ function recordPlan(ctx, name, planText) {
 	const version = (content.match(new RegExp(`_${ctx.labels.planValidated}`, 'g')) ?? []).length + 1;
 	write(file, content);
 	appendBlock(file, `_${ctx.labels.planValidated}${version > 1 ? ` (v${version})` : ''} — [${planName}](${planName})_`);
+	return current;
 }
 
 /** @param {string} planText */
@@ -386,11 +424,19 @@ function commitsHere(ctx, command, cwd) {
 
 /** @param {Ctx} ctx @param {any} input */
 function hookPrecommit(ctx, input) {
-	const command = String(input?.tool_input?.command ?? '');
-	if (!lib.isGitCommit(command) || !commitsHere(ctx, command, input?.cwd)) return;
-	const sid = input?.session_id;
+	const reason = precommitReason(ctx, { command: String(input?.tool_input?.command ?? ''), cwd: input?.cwd, sid: input?.session_id });
+	if (reason) process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }));
+}
+
+/**
+ * Agent-neutral commit guard: why this command must be refused, or null to let it run.
+ * @param {Ctx} ctx @param {{ command: string, cwd: string | undefined, sid: string | undefined }} o
+ * @returns {string | null}
+ */
+function precommitReason(ctx, { command, cwd, sid }) {
+	if (!lib.isGitCommit(command) || !commitsHere(ctx, command, cwd)) return null;
 	const name = sid ? findJournal(ctx, sid) : null;
-	if (!name || lib.isPaused(read(path.join(ctx.dir, name)), sid)) return;
+	if (!name || lib.isPaused(read(path.join(ctx.dir, name)), /** @type {string} */ (sid))) return null;
 	const journalRel = rel(ctx, name);
 	const plan = planOf(ctx, name);
 	const planRel = plan ? rel(ctx, plan) : null;
@@ -404,19 +450,120 @@ function hookPrecommit(ctx, input) {
 			logError(ctx.root, err);
 		}
 	}
-	if (!ctx.config.enforceCommit || lib.isAmendNoEdit(command)) return;
+	if (!ctx.config.enforceCommit || lib.isAmendNoEdit(command)) return null;
 	const msg = lib.extractCommitMessage(command, (f) => read(path.resolve(ctx.root, f)) || null);
-	if (msg === null) return;
+	if (msg === null) return null;
 	const missing = lib.checkCommitMessage(msg, { journalRel, planRel });
-	if (!missing.length) return;
-	const reason = [
+	if (!missing.length) return null;
+	return [
 		`Commit blocked by the journal: missing ${missing.join(', ')}.`,
 		'1. Run `/journal note` (synthesis + file table in the journal).',
 		'2. Reuse that synthesis in the commit BODY (after the subject line).',
 		`3. End with the trailers: Journal: ${journalRel}${planRel ? ` then Plan: ${planRel}` : ''}, before Co-Authored-By.`,
 		'Then retry the same commit.',
 	].join('\n');
-	process.stdout.write(JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } }));
+}
+
+// ─── Antigravity hooks ────────────────────────────────────────────────────────
+// Antigravity has no prompt hook and may stop several times per prompt (plan review): the journal
+// is synced from the transcript instead — see agents/antigravity.mjs. Its hooks must always answer
+// with JSON on stdout (a broken PreToolUse blocks every tool), so main() writes the answer itself.
+
+/** Per conversation: last journaled step and the plan artifact awaiting approval. Local, git-ignored. @param {Ctx} ctx */
+function statePath(ctx) {
+	return path.join(ctx.root, ctx.configDir, 'journal-state.json');
+}
+
+/** Conversations kept in journal-state.json; older ones will never come back. */
+const STATE_KEEP = 100;
+
+/**
+ * Journals the transcript steps the previous hooks haven't: the new prompt (PreInvocation of a new
+ * turn), the agent's replies, the approved plan (Stop).
+ * @param {Ctx} ctx @param {any} input @param {'prompt' | 'stop'} mode
+ * @returns {boolean} whether the conversation's journal was just created
+ */
+function agySync(ctx, input, mode) {
+	const sid = String(input.conversationId);
+	const file = statePath(ctx);
+	/** @type {Record<string, { last: number, plan?: string, at?: number }>} */
+	const state = readJson(file);
+	const st = state[sid] ?? { last: -1 };
+	const { events, last } = agy.syncEvents(agy.parseSteps(read(input.transcriptPath ?? '')), { from: st.last, mode });
+	if (last === st.last && !events.length) return false;
+	try {
+		return isDiscarded(ctx, sid) ? false : applyAgyEvents(ctx, sid, events, st);
+	} finally {
+		// Advance even when nothing was written (paused, discarded): resuming must not replay the gap.
+		st.last = last;
+		st.at = Date.now();
+		state[sid] = st;
+		const kept = Object.entries(state)
+			.sort((a, b) => (b[1].at ?? 0) - (a[1].at ?? 0))
+			.slice(0, STATE_KEEP);
+		write(file, `${JSON.stringify(Object.fromEntries(kept), null, '\t')}\n`);
+	}
+}
+
+/**
+ * @param {Ctx} ctx @param {string} sid @param {agy.JournalEvent[]} events @param {{ plan?: string }} st
+ * @returns {boolean} whether the conversation's journal was just created
+ */
+function applyAgyEvents(ctx, sid, events, st) {
+	let name = findJournal(ctx, sid);
+	let created = false;
+	if (name && lib.isPaused(read(path.join(ctx.dir, name)), sid)) return false;
+	for (const ev of events) {
+		if (ev.type === 'planWritten') {
+			st.plan = ev.file;
+			continue;
+		}
+		if (ev.type === 'prompt') {
+			if (!name) {
+				name = ensureJournal(ctx, sid);
+				created = true;
+			}
+			const content = read(path.join(ctx.dir, name));
+			appendBlock(path.join(ctx.dir, name), lib.renderPrompt(lib.redactSecrets(ev.text, ctx.config.redact), lib.needsSeparator(content)));
+			continue;
+		}
+		if (!name) continue;
+		if (ev.type === 'reply') {
+			const entries = agy.toEntries(ev.steps);
+			const at = ev.steps.at(-1)?.created_at;
+			const blocks = lib.extractAssistantBlocks(entries, ctx.verbosity);
+			const files = lib.turnTouchedFiles(entries, ctx.root, ctx.excludeDirs);
+			appendBlock(path.join(ctx.dir, name), lib.renderReply({ time: lib.localTime(at ? new Date(at) : new Date()), blocks: redactBlocks(ctx, blocks), files, interrupted: ev.interrupted && blocks.length > 0, labels: ctx.labels, speaker: agy.SPEAKER }));
+		} else if (ev.type === 'planApproved' && st.plan) {
+			const planText = read(st.plan);
+			if (planText) name = recordPlan(ctx, name, planText) ?? name;
+			else logError(ctx.root, `Antigravity plan artifact not readable: ${st.plan}`);
+			delete st.plan;
+		}
+	}
+	return created;
+}
+
+/**
+ * @param {string} cmd @param {Ctx} ctx @param {any} input
+ * @returns {Promise<Record<string, unknown>>} the JSON answer Antigravity expects on stdout
+ */
+async function hookAntigravity(cmd, ctx, input) {
+	const sid = input?.conversationId;
+	if (!sid) return {};
+	if (cmd === 'prompt' || cmd === 'stop') {
+		// No SessionStart in Antigravity: the git hook is (re)installed with each conversation's first journal.
+		if (agySync(ctx, input, cmd)) {
+			const { installGitHook } = await import('./install.mjs');
+			installGitHook(ctx.root, { quiet: true, configDir: ctx.configDir });
+		}
+	}
+	else if (cmd === 'precommit') {
+		const { command, cwd } = agy.commandOf(input);
+		const reason = precommitReason(ctx, { command, cwd, sid });
+		if (reason) return { decision: 'deny', reason };
+	}
+	return {};
 }
 
 // ─── CLI ──────────────────────────────────────────────────────────────────────
@@ -507,7 +654,7 @@ function cmdVerbosity(ctx, args) {
 	const web = args.includes('--web');
 	const level = args.find((a) => !a.startsWith('--'));
 	if (!lib.isVerbosity(level)) throw new Error(`usage: verbosity <${lib.VERBOSITIES.join('|')}> [--web]`);
-	const cfgPath = projectConfigPath(ctx.root);
+	const cfgPath = projectConfigPath(ctx.root, ctx.configDir);
 	let raw = {};
 	try {
 		raw = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
@@ -614,9 +761,47 @@ function cmdBackfill(ctx, args) {
 	if (extras) process.stderr.write('backfill: content appended after the last exchange (synthesis…) preserved\n');
 }
 
+/**
+ * Diagnostic hook: records what an agent hands its hooks (payload, cwd, relevant env, a copy of the
+ * transcript and the artifacts listing) into `.agents/journal-dump/`, to calibrate an agent adapter on
+ * real data. Never blocks: answers `allow` to a PreToolUse, `{}` otherwise.
+ * @param {string[]} args
+ */
+function cmdDump(args) {
+	const event = args.find((a) => !a.startsWith('--')) ?? 'unknown';
+	const raw = readStdin();
+	/** @type {any} */
+	let input = {};
+	try {
+		input = raw.trim() ? JSON.parse(raw) : {};
+	} catch {
+		input = { unparsed: raw.slice(0, 20000) };
+	}
+	const root = (Array.isArray(input.workspacePaths) && input.workspacePaths[0]) || projectRoot(input);
+	const out = path.join(root, '.agents', 'journal-dump');
+	const stamp = `${new Date().toISOString().replace(/[:.]/g, '-')}-${process.pid}-${event}`;
+	try {
+		const env = Object.fromEntries(Object.entries(process.env).filter(([k]) => /PLUGIN|ANTIGRAVITY|GEMINI|AGENT|CLAUDE|^PWD$|^HOME$|^USERPROFILE$/i.test(k)));
+		const transcript = input.transcriptPath ?? input.transcript_path;
+		let artifacts = null;
+		if (input.artifactDirectoryPath) {
+			try {
+				artifacts = fs.readdirSync(input.artifactDirectoryPath, { recursive: true }).map(String);
+			} catch (err) {
+				artifacts = String(err);
+			}
+		}
+		write(path.join(out, `${stamp}.json`), `${JSON.stringify({ event, argv: process.argv.slice(2), cwd: process.cwd(), scriptDir: import.meta.dirname, env, artifacts, input }, null, '\t')}\n`);
+		if (transcript && fs.existsSync(transcript)) fs.copyFileSync(transcript, path.join(out, `${stamp}.transcript${path.extname(transcript) || '.txt'}`));
+	} catch (err) {
+		logError(root, err, { cmd: 'dump', event });
+	}
+	process.stdout.write(event === 'PreToolUse' ? '{"decision":"allow"}\n' : '{}\n');
+}
+
 const HELP = `journal.mjs — Claude Code conversation journal (github.com/appynamic/ai-dev-skills)
 
-Hooks (JSON on stdin): session | prompt | stop | tool | precommit
+Hooks (JSON on stdin): session | prompt | stop | tool | precommit   [--agent claude|antigravity]
 CLI:
   status                      journal/plan/verbosity of the current session (JSON)
   rename <title> [--slug s]   renames the session's journal (date + NNN kept)
@@ -626,7 +811,8 @@ CLI:
   verbosity <level> [--web]   final | text | text+tools
   table                       markdown table of staged files
   backfill <transcript.jsonl> [--title t] [--slug s] [--verbosity v] [--force]
-Common options: --session <id> (default: $CLAUDE_CODE_SESSION_ID)
+  dump <event>                diagnostic hook: saves payload/env/transcript to .agents/journal-dump/
+Common options: --session <id> (default: $CLAUDE_CODE_SESSION_ID or $ANTIGRAVITY_CONVERSATION_ID), --agent claude|antigravity
 `;
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -635,16 +821,35 @@ const HOOKS = new Set(['session', 'prompt', 'stop', 'tool', 'precommit']);
 
 async function main() {
 	const [cmd = 'help', ...args] = process.argv.slice(2);
+	if (cmd === 'dump') return cmdDump(args);
+	const agentFlag = takeFlag(args, '--agent');
 	if (HOOKS.has(cmd)) {
+		/** @type {any} */
 		let input = {};
 		const raw = readStdin();
 		try {
 			input = raw.trim() ? JSON.parse(raw) : {};
 		} catch (err) {
 			logError(projectRoot(), err, raw.slice(0, 2000));
+			if (detectAgent(agentFlag) === 'antigravity') process.stdout.write(cmd === 'precommit' ? '{"decision":"allow"}\n' : '{}\n');
 			return;
 		}
-		const ctx = context(input);
+		const agent = detectAgent(agentFlag, input);
+		if (agent === 'antigravity') {
+			// PreInvocation fires before every model call: only the first one of a turn carries a new prompt.
+			if (cmd === 'prompt' && input.invocationNum !== 0) return void process.stdout.write('{}\n');
+			/** @type {Record<string, unknown>} */
+			let out = {};
+			try {
+				out = await hookAntigravity(cmd, context(input, agent), input);
+			} catch (err) {
+				logError(projectRoot(input), err, { cmd, conversation: input.conversationId });
+			}
+			// Antigravity reads a JSON answer; for a PreToolUse anything but `deny` lets the tool run.
+			process.stdout.write(`${JSON.stringify(cmd === 'precommit' && out.decision !== 'deny' ? { decision: 'allow' } : out)}\n`);
+			return;
+		}
+		const ctx = context(input, agent);
 		try {
 			const sid = /** @type {any} */ (input).session_id;
 			if (cmd !== 'session' && sid && isDiscarded(ctx, sid)) return;
@@ -658,7 +863,7 @@ async function main() {
 		}
 		return;
 	}
-	const ctx = context();
+	const ctx = context(undefined, detectAgent(agentFlag));
 	try {
 		if (cmd === 'status') cmdStatus(ctx, args);
 		else if (cmd === 'rename') cmdRename(ctx, args);

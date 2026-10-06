@@ -11,7 +11,9 @@ The verbatim is written **by hooks**, not by you: prompts, questions/answers, th
 
 CLI: `node "${CLAUDE_PLUGIN_ROOT}/skills/journal/scripts/journal.mjs" <command>`. The current session is read from `$CLAUDE_CODE_SESSION_ID`; don't pass `--session`.
 
-Arguments received: `$ARGUMENTS`
+**In Antigravity** (no `${CLAUDE_PLUGIN_ROOT}`): the CLI is `scripts/journal.mjs` next to this SKILL.md — run `node "<absolute path of this skill's dir>/scripts/journal.mjs" <command>`, same for `scripts/install.mjs`. The conversation is read from `$ANTIGRAVITY_CONVERSATION_ID`; config and logs live in `.agents/` instead of `.claude/`. Hooks journal prompts, replies and the approved plan artifact; there are no questions/answers to journal.
+
+Arguments received: `$ARGUMENTS` (in Antigravity: whatever follows `/journal` in the user's message)
 
 ## Commands
 
@@ -41,13 +43,15 @@ Run once per project (idempotent — safe to run again after a config change).
 3. Same command without `--dry-run`, then `install.mjs --check`. If it warns about the install scope, relay the fix as-is (`claude plugin install journal@ai-dev-skills --scope user`): on Windows a project-scope install is invisible to sessions opened with the other drive-letter case (terminal `C:` vs VS Code `c:`).
 4. Remind: verify the plugin is enabled with `/plugin`, then start a **new session** — hooks load at session start, so the current one won't journal until the next one.
 
+In Antigravity, pass `--target antigravity` to every `install.mjs` call: config in `.agents/journal.config.json`, instructions in `AGENTS.md`, git hook script in `.agents/`. Skip the install-scope step; remind instead to check the plugin is enabled (Settings › Plugins) and to start a **new conversation**.
+
 ## Synthesis
 
 Write it on `/journal note`, and **always before a commit you make yourself**.
 
 1. `journal.mjs status`: journal and plan paths.
 2. `git add` the commit's files if not staged yet, then `journal.mjs table`: markdown table of staged files.
-3. Append to the end of the journal (Edit, end of file only; never touch anything above):
+3. Append to the end of the journal (Edit, end of file only; never touch anything above — in Antigravity, `replace_file_content` on the last line, never `write_to_file`, which rewrites the whole file):
 
    ```md
    ### Synthèse · YYYY-MM-DD HH:mm
@@ -107,5 +111,5 @@ The PR body holds the session's (or branch's) syntheses, then links to the journ
 - Never edit verbatim content already written, or the `<!-- journal:… -->` markers.
 - If the user is about to paste sensitive data, suggest `/journal pause`.
 - Never propose `/journal discard` on your own for a session with real work in it; if the user says the session isn't worth journaling, it's the command to run.
-- A hook problem shows up in `.claude/journal-errors.log`.
+- A hook problem shows up in `.claude/journal-errors.log` (Antigravity: `.agents/journal-errors.log`).
 - Never stage or commit without being explicitly asked in the turn — the journal is prepared, not committed on its own (see "Commit").

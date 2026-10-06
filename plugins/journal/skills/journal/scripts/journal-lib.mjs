@@ -373,12 +373,12 @@ export function renderToolGroup(tools) {
 }
 
 /**
- * @param {{ time: string, blocks: AssistantBlock[], files: string[], interrupted?: boolean, labels: typeof LABELS.fr }} o
+ * @param {{ time: string, blocks: AssistantBlock[], files: string[], interrupted?: boolean, labels: typeof LABELS.fr, speaker?: string }} o
  */
 export function renderReply(o) {
 	const body = o.blocks.map((b) => (b.type === 'text' ? demoteHeadings(escapeMarkers(normalizeText(b.text))) : renderToolGroup(b.tools))).filter(Boolean);
 	if (!body.length && !o.files.length) return REPLY_MARKER;
-	const meta = [`**${o.labels.claude}** · ${o.time}`];
+	const meta = [`**${o.speaker ?? o.labels.claude}** · ${o.time}`];
 	if (o.interrupted) meta.push(`_(${o.labels.interrupted})_`);
 	if (o.files.length) meta.push(`_${o.labels.files} : ${o.files.join(', ')}_`);
 	return [meta.join(' · '), '', ...body.flatMap((b) => [b, '']), REPLY_MARKER].join('\n');

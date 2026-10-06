@@ -1,0 +1,21 @@
+{
+	"artifactDirectoryPath": "C:/Users/dev/.gemini/antigravity/brain/8a86ee2a-0b13-4df6-968c-d286ada93d69",
+	"conversationId": "8a86ee2a-0b13-4df6-968c-d286ada93d69",
+	"modelName": "gemini-3.8-flash-low",
+	"stepIdx": 6,
+	"toolCall": {
+		"args": {
+			"CodeContent": "Ligne initiale de test.\n",
+			"Description": "Création du fichier temporaire avec une première ligne de test",
+			"Overwrite": true,
+			"TargetFile": "c:\\www\\appy\\demo-project\\tmp-journal-test.md",
+			"toolAction": "Creating test file",
+			"toolSummary": "Create tmp-journal-test.md"
+		},
+		"name": "write_to_file"
+	},
+	"transcriptPath": "C:/Users/dev/.gemini/antigravity/brain/8a86ee2a-0b13-4df6-968c-d286ada93d69/.system_generated/logs/transcript_full.jsonl",
+	"workspacePaths": [
+		"c:/www/appy/demo-project"
+	]
+}

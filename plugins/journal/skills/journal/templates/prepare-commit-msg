@@ -1,3 +1,3 @@
-# Installed by the journal Claude Code plugin (https://github.com/appynamic/ai-dev-skills).
-# Actual logic lives in .claude/journal-git-hook.mjs (project-committed, self-contained).
-node "$(git rev-parse --show-toplevel)/.claude/journal-git-hook.mjs" "$@"
+# Installed by the journal plugin (Claude Code / Antigravity) (https://github.com/appynamic/ai-dev-skills).
+# Actual logic lives in {{hookScript}} (project-committed, self-contained).
+node "$(git rev-parse --show-toplevel)/{{hookScript}}" "$@"

@@ -1,26 +1,28 @@
 # ai-dev-skills
 
-A [Claude Code plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces.md): install once, reuse the same skill across projects instead of copy-pasting `.claude/` folders around.
+Agent skills you install once and reuse across projects instead of copy-pasting config folders around — for **[Claude Code](https://code.claude.com)** (a [plugin marketplace](https://code.claude.com/docs/en/plugin-marketplaces.md)) and **[Google Antigravity](https://antigravity.google)** (the same folders are Antigravity plugins).
 
 ## Plugins
 
 ### [`journal`](plugins/journal)
 
-Automatic dev journal, written by hooks — nothing to type. Every session gets a markdown file in `docs/journals/` with:
+Automatic dev journal, written by hooks — nothing to type. Every session (Claude Code) or conversation (Antigravity) gets a markdown file in `docs/journals/` with:
 
 - your prompts, verbatim (`>` on every line);
-- the questions Claude asked and your answers;
+- the questions the agent asked and your answers (Claude Code only — Antigravity has none);
 - the plan you approved;
-- Claude's replies (how much of them is configurable — see below);
+- the agent's replies (how much of them is configurable — see below);
 - a `--------------------------------------------` separator between exchanges.
 
-A commit-message guard keeps every commit linked to its journal entry and plan (`Journal:` / `Plan:` trailers + a short synthesis), and never commits on its own initiative — see [plugins/journal/SKILL.md](plugins/journal/SKILL.md) for the full behavior.
+A commit-message guard keeps every commit linked to its journal entry and plan (`Journal:` / `Plan:` trailers + a short synthesis), and never commits on its own initiative — see [plugins/journal/skills/journal/SKILL.md](plugins/journal/skills/journal/SKILL.md) for the full behavior.
 
-Inspired by [juliuszfedyk/dev-journal](https://github.com/juliuszfedyk/dev-journal), reworked so hooks write the verbatim instead of Claude typing it out on request.
+Inspired by [juliuszfedyk/dev-journal](https://github.com/juliuszfedyk/dev-journal), reworked so hooks write the verbatim instead of the agent typing it out on request.
 
 ## Install
 
-### 1. Add this marketplace
+### Claude Code
+
+#### 1. Add this marketplace
 
 In Claude Code:
 
@@ -43,7 +45,7 @@ Or commit it to a project's `.claude/settings.json` so every collaborator gets i
 }
 ```
 
-### 2. Install the plugin
+#### 2. Install the plugin
 
 ```
 /plugin install journal@ai-dev-skills
@@ -53,7 +55,7 @@ Check it's enabled with `/plugin`.
 
 **On Windows, install at user scope** (`claude plugin install journal@ai-dev-skills --scope user`, or pick "user" in `/plugin`). A project-scope install is keyed on the exact project path, and the drive letter's case depends on the launcher — the terminal CLI records `C:\…`, the VS Code extension `c:\…` — so a project install made from one never loads in the other: no hook fires, `/journal` is "no matching command", and nothing reaches `journal-errors.log`. `/journal init` and `install.mjs --check` warn about it.
 
-### 3. Set up the project
+#### 3. Set up the project
 
 Inside the project you want journaled:
 
@@ -79,13 +81,56 @@ Then **start a new Claude Code session** — hooks load at session start, so the
 ```
 removes exactly what `init` added. It never touches the journals themselves.
 
+### Antigravity (experimental)
+
+Calibrated and tested on Antigravity 2.0 (2.19.1); the Antigravity IDE and CLI share the same plugin format but are not tested yet. There is no GitHub marketplace on the Antigravity side for now: you load the plugin from a local clone.
+
+#### 1. Clone this repo
+
+```
+git clone https://github.com/appynamic/ai-dev-skills.git
+```
+
+`git pull` in that clone updates the plugin; Antigravity loads it from there.
+
+#### 2. Point Antigravity at the clone
+
+Create `plugins.json` — globally in `~/.gemini/config/plugins.json` (every workspace), or in a project's `.agents/plugins.json` (that project only; git-ignore it, the path is per machine) — with the **absolute path** of the clone's `plugins` folder:
+
+```json
+{
+	"entries": [{ "path": "C:/www/ai-dev-skills/plugins", "include_only": ["journal"] }]
+}
+```
+
+(macOS/Linux: `/Users/you/ai-dev-skills/plugins`, or `~/…`.) Check that `journal` shows up and is enabled in Antigravity's plugin settings.
+
+Alternative, not tested yet: `agy plugin install <clone>/plugins/journal` (copies the plugin instead of loading it from the clone).
+
+#### 3. Set up the project
+
+In an Antigravity conversation inside the project: `/journal init` — or by hand:
+
+```
+node <clone>/plugins/journal/skills/journal/scripts/install.mjs --target antigravity
+```
+
+Same files as for Claude Code, under `.agents/` instead of `.claude/`: `.agents/journal.config.json`, `.agents/journal-git-hook.mjs`, the `AGENTS.md` section, plus the shared `.githooks/`, `.gitattributes`, `.gitignore`, `package.json` and `docs/journals/README.md`. `--uninstall` removes them; `--check` verifies the setup.
+
+Then **start a new conversation**.
+
 ## How it works
 
-A plugin's hooks (`plugins/journal/hooks/hooks.json`) load automatically once the plugin is enabled — Claude Code resolves `${CLAUDE_PLUGIN_ROOT}` to wherever it cached the plugin, so **no file is copied into your project for the Claude Code side of things**. The only things `/journal init` writes into your project are the two genuinely project-level pieces above: settings meant to be shared with your team (`journal.config.json`), and a git hook, which has to work independent of Claude Code entirely (GitHub Desktop, a teammate without the plugin, CI).
+A plugin's hooks load automatically once the plugin is enabled, so **no file is copied into your project for the agent side of things**:
+
+- **Claude Code** reads `plugins/journal/hooks/hooks.json` and resolves `${CLAUDE_PLUGIN_ROOT}` to wherever it cached the plugin.
+- **Antigravity** reads `plugins/journal/plugin.json`, `hooks.json` and `rules/AGENTS.md` (they sit next to the Claude Code files and don't interfere with them), and runs the hooks from the plugin folder. It has no prompt hook and may stop several times per prompt (a plan waiting for review), so prompts and replies are synced from its transcript at each `PreInvocation` / `Stop`; the approved plan is the plan artifact you approved. A project set up only for Claude Code (`.claude/journal.config.json`) is journaled by Antigravity with that same config.
+
+The only things `/journal init` writes into your project are the two genuinely project-level pieces above: settings meant to be shared with your team (`journal.config.json`), and a git hook, which has to work independent of any agent (GitHub Desktop, a teammate without the plugin, CI).
 
 ## Configure
 
-`.claude/journal.config.json` (all optional, shown with defaults):
+`.claude/journal.config.json` — `.agents/journal.config.json` for Antigravity (all optional, shown with defaults):
 
 ```json
 {
@@ -189,12 +234,13 @@ Naming: `YYYY-MM-DD--NNN-<slug>.md` (`NNN` = the day's sequence, restarts at `00
 | Commit refused | read the reason: `/journal note`, then the synthesis in the commit body + `Journal:`/`Plan:` trailers |
 | Question/answer missing from the journal | `AskUserQuestion`'s output shape changed — the raw JSON is in `journal-errors.log`; open an issue |
 | Re-run setup after a config change | `/journal init` again — idempotent |
+| Antigravity: nothing gets written | `%APPDATA%\Antigravity\logs\language_server.log` (macOS/Linux: the app's logs dir) says why a `hooks.json` was rejected; then `.agents/journal-errors.log` |
 
 ## Contributing
 
-Tests: `node --test plugins/journal/skills/journal/scripts/journal-lib.test.mjs`. Pure logic lives in `journal-lib.mjs` (no filesystem/process access — everything testable goes there); `journal.mjs` and `install.mjs` are the thin I/O layer around it.
+Tests: `node --test plugins/journal/skills/journal/scripts/*.test.mjs plugins/journal/skills/journal/scripts/agents/*.test.mjs`. Pure logic lives in `journal-lib.mjs` and `agents/antigravity.mjs` (no filesystem/process access — everything testable goes there); `journal.mjs` and `install.mjs` are the thin I/O layer around it. The Antigravity tests replay a real captured conversation (`scripts/fixtures/antigravity/`); `journal.mjs dump <event>` (template: `templates/antigravity-dump-hooks.json`) captures a new one.
 
-To add another plugin to this marketplace: a new `plugins/<name>/` with its own `.claude-plugin/plugin.json`, listed in [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json).
+To add another plugin to this marketplace: a new `plugins/<name>/` with its own `.claude-plugin/plugin.json`, listed in [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) — plus a `plugin.json` at its root (and `hooks.json` / `rules/` if needed) to make it an Antigravity plugin too.
 
 ## Privacy
 
