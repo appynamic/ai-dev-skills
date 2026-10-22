@@ -8,3 +8,11 @@ Thumbs.db
 
 # Node (only relevant if a future plugin here ships a package.json)
 node_modules/
+
+# journal-skill:start
+.claude/settings.local.json
+.claude/journal.config.local.json
+.claude/journal-errors.log
+.claude/journal-discarded
+.claude/journal-autotitled
+# journal-skill:end
