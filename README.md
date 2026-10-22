@@ -55,6 +55,16 @@ Check it's enabled with `/plugin`.
 
 **On Windows, install at user scope** (`claude plugin install journal@ai-dev-skills --scope user`, or pick "user" in `/plugin`). A project-scope install is keyed on the exact project path, and the drive letter's case depends on the launcher — the terminal CLI records `C:\…`, the VS Code extension `c:\…` — so a project install made from one never loads in the other: no hook fires, `/journal` is "no matching command", and nothing reaches `journal-errors.log`. `/journal init` and `install.mjs --check` warn about it.
 
+**Moving from a project-scope install to user scope**: install at user scope, then remove the old project-scope entries. They are keyed per path casing, so run the uninstall from the project once per casing (both may exist if the plugin was installed from the terminal and from VS Code):
+
+```powershell
+claude plugin install journal@ai-dev-skills --scope user
+cd C:\path\to\project; claude plugin uninstall journal@ai-dev-skills --scope project
+cd c:\path\to\project; claude plugin uninstall journal@ai-dev-skills --scope project
+```
+
+Leftover project installs keep an old version pinned in that project, even after the user-scope one is updated. `installed_plugins.json` in `~/.claude/plugins/` lists every install with its `scope`, `projectPath` and `version`. If the uninstall removes `"journal@ai-dev-skills": true` from the project's `.claude/settings.json`, you can put it back: it only enables the user-scope plugin for the team. Open a new session afterwards.
+
 #### 3. Set up the project
 
 Inside the project you want journaled:
@@ -236,6 +246,7 @@ Naming: `YYYY-MM-DD--NNN-<slug>.md` (`NNN` = the day's sequence, restarts at `00
 | Commit refused | read the reason: `/journal note`, then the synthesis in the commit body + `Journal:`/`Plan:` trailers |
 | Draft never gets a title | `claude` CLI not on `PATH` (or `autoTitle: false`); the failure is in `journal-errors.log`. One attempt per session — name it with `/journal <title>` |
 | Question/answer missing from the journal | `AskUserQuestion`'s output shape changed — the raw JSON is in `journal-errors.log`; open an issue |
+| Old plugin version still runs in one project after an update | leftover project-scope install pinning it — uninstall it per path casing, see [Moving from a project-scope install to user scope](#2-install-the-plugin) |
 | Re-run setup after a config change | `/journal init` again — idempotent |
 | Antigravity: nothing gets written | `%APPDATA%\Antigravity\logs\language_server.log` (macOS/Linux: the app's logs dir) says why a `hooks.json` was rejected; then `.agents/journal-errors.log` |
 
