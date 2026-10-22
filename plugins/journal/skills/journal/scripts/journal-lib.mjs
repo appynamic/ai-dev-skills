@@ -17,10 +17,11 @@ export const VERBOSITIES = ['final', 'text', 'text+tools'];
  * @property {boolean} enforceCommit
  * @property {{ default?: Verbosity, web?: Verbosity } | Verbosity} [verbosity]
  * @property {string[]} [redact]
+ * @property {boolean | string} [autoTitle] names a draft after its first reply: true = `claude -p` (Haiku), a string = a custom command (prompt on stdin, title on stdout), false = off
  */
 
 /** @type {JournalConfig} */
-export const DEFAULT_CONFIG = { dir: 'docs/journals', locale: 'fr', enforceCommit: true, verbosity: { default: 'final', web: 'text+tools' }, redact: [] };
+export const DEFAULT_CONFIG = { dir: 'docs/journals', locale: 'fr', enforceCommit: true, verbosity: { default: 'final', web: 'text+tools' }, redact: [], autoTitle: true };
 
 export const LABELS = {
 	fr: { claude: 'Claude', asks: 'Claude demande', options: 'Options', choice: 'choix', note: 'note', free: 'libre', noAnswer: 'sans réponse', files: 'fichiers', interrupted: 'tour interrompu', plan: 'Plan', sessions: 'Sessions', session: 'Session', none: '—', planValidated: 'Plan validé', draft: 'Brouillon', journal: 'Journal', file: 'Fichier', change: 'Changement', image: 'image jointe', status: { A: 'nouveau', M: 'modifié', D: 'supprimé', R: 'renommé', C: 'copié', T: 'type modifié', U: 'en conflit' } },
@@ -46,6 +47,8 @@ export function pausedMarker(sessionId) {
 }
 export const TURN_MARKER = '<!-- journal:turn -->';
 export const REPLY_MARKER = '<!-- journal:reply -->';
+/** A title suggested by a model, not chosen: the journal stays provisional (a plan or `/journal <title>` replaces it, discard deletes it). */
+export const AUTO_TITLE_MARKER = '<!-- journal:auto-title -->';
 
 /** @param {string} text */
 export function escapeMarkers(text) {
@@ -81,6 +84,26 @@ export function hasPendingReply(content) {
 /** @param {string} content @param {string} sessionId */
 export function isPaused(content, sessionId) {
 	return content.includes(pausedMarker(sessionId));
+}
+
+/** @param {string} content */
+export function isAutoTitled(content) {
+	return content.includes(AUTO_TITLE_MARKER);
+}
+
+/** Marker right after the last session marker (header), at most once; `false` removes it. @param {string} content @param {boolean} on */
+export function setAutoTitled(content, on) {
+	const without = content.replace(new RegExp(`${AUTO_TITLE_MARKER}\\n?`, 'g'), '');
+	if (!on) return without;
+	const last = [...without.matchAll(/<!-- journal:session [^>]+ -->\n/g)].at(-1);
+	if (!last || last.index === undefined) return without.replace(/^(# .*\n)/, `$1\n${AUTO_TITLE_MARKER}\n`);
+	const at = last.index + last[0].length;
+	return `${without.slice(0, at)}${AUTO_TITLE_MARKER}\n${without.slice(at)}`;
+}
+
+/** Not named by anyone yet: a `brouillon-…` draft or a model-suggested title. @param {string} name @param {string} content */
+export function isProvisional(name, content) {
+	return Boolean(parseJournalFileName(name)?.draft) || isAutoTitled(content);
 }
 
 // ─── Discarded sessions ───────────────────────────────────────────────────────
@@ -284,6 +307,57 @@ export function uniqueSlug(slug, names, ownName) {
 	}
 	if (!taken.has(slug)) return slug;
 	for (let i = 2; ; i++) if (!taken.has(`${slug}-${i}`)) return `${slug}-${i}`;
+}
+
+/** Journal text kept for the title prompt: the exchanges are enough to name a feature. */
+export const TITLE_PROMPT_MAX = 8000;
+
+/**
+ * The prompt that asks a model to name a draft journal from its exchanges so far (markers,
+ * separators and header stripped, long journals cut — the first exchange names the feature).
+ * @param {string} content journal content
+ */
+export function titlePrompt(content) {
+	const at = content.search(/^## /m);
+	const body = (at === -1 ? content : content.slice(at))
+		.replace(/<!-- journal:[^>]*-->/g, '')
+		.replaceAll(SEPARATOR, '')
+		.replace(/\n{3,}/g, '\n\n')
+		.trim()
+		.slice(0, TITLE_PROMPT_MAX);
+	// The ask comes last too: placed only before a French conversation, the title came back in French.
+	return [
+		'Below is the start of a developer conversation with an AI coding agent (prompts quoted with ">", agent replies after them).',
+		'',
+		'<conversation>',
+		body,
+		'</conversation>',
+		'',
+		'Give this conversation a short title IN ENGLISH (3 to 6 words), whatever language it is written in, naming the feature, fix or topic being worked on, e.g. "Journal auto title from summary".',
+		'Reply with the English title only: no quotes, no markdown, no final period.',
+	].join('\n');
+}
+
+/**
+ * What a model answered, reduced to a title: last meaningful line, without a "Title:" prefix,
+ * quotes, markdown or final period. '' when nothing usable came back.
+ * @param {string} output
+ */
+export function parseTitleOutput(output) {
+	const line = String(output ?? '')
+		.split(/\r?\n/)
+		.map((l) => l.trim())
+		.filter((l) => l && !/^```/.test(l))
+		.at(-1);
+	if (!line) return '';
+	const title = line
+		.replace(/^#+\s*/, '')
+		.replace(/^\**\s*title\s*\**\s*:\s*/i, '')
+		.replace(/^[*_`"'“«\s]+|[*_`"'”»\s.]+$/g, '')
+		.replace(/\s+/g, ' ')
+		.trim();
+	if (!title || title.length > 80 || title.split(' ').length > 10) return '';
+	return title;
 }
 
 /** @param {string} md @param {string} [fallback] */

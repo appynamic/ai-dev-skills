@@ -271,10 +271,11 @@ function installGitignore(root, t, opts) {
 	// settings.local.json holds machine-specific permissions and absolute paths: a `git add .claude`
 	// must not sweep it in next to journal.config.json (which IS meant to be shared/committed).
 	// journal-discarded is per-machine session state (ids of sessions dropped with `discard`), like
-	// journal-state.json (Antigravity: last journaled step per conversation).
+	// journal-state.json (Antigravity: last journaled step per conversation) and journal-autotitled
+	// (sessions whose draft already got its auto-title attempt).
 	const outside = upsertBlock(prev, BLOCK_START, BLOCK_END, null);
 	const cd = t.configDir;
-	const wanted = [...t.ignore, `${cd}/journal.config.local.json`, `${cd}/journal-errors.log`, `${cd}/journal-discarded`].filter((l) => !outside.split('\n').some((x) => x.trim() === l));
+	const wanted = [...t.ignore, `${cd}/journal.config.local.json`, `${cd}/journal-errors.log`, `${cd}/journal-discarded`, `${cd}/journal-autotitled`].filter((l) => !outside.split('\n').some((x) => x.trim() === l));
 	const next = upsertBlock(prev, BLOCK_START, BLOCK_END, opts.uninstall || !wanted.length ? null : wanted.join('\n'));
 	if (!opts.uninstall && !wanted.length && !prev.includes(BLOCK_START)) return log(opts, '  = .gitignore');
 	apply(file, next, opts, '.gitignore');

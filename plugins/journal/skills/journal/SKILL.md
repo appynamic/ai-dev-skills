@@ -21,16 +21,18 @@ Take the first word of the arguments:
 
 | Argument | What you do |
 | --- | --- |
-| *(empty)* or `status` | `journal.mjs status`, then say in one line: journal, plan, draft or not, verbosity. |
+| *(empty)* or `status` | `journal.mjs status`, then say in one line: journal, plan, draft / auto title / named, verbosity. |
 | `note` | Write the synthesis (see "Synthesis"). |
 | `use <slug>` | `journal.mjs use <slug>`. Attaches the session to an existing journal — continuing a feature started in another session or on another machine. |
 | `verbosity <level> [--web]` | `journal.mjs verbosity <level> [--web]`. Levels: `final` (last message only), `text` (all your text), `text+tools` (text + one line per tool group). `--web` sets the level used on Claude Code web. Takes effect next turn. |
 | `pause` / `resume` | `journal.mjs pause` / `resume`. Nothing is journaled while paused. |
-| `discard` | `journal.mjs discard`. Deletes the session's **draft** journal and stops journaling this session for good — a session not worth keeping (a quick question, an export, a false start). Refused on a named journal (it may hold other sessions and a plan): offer `pause` instead, or let the user delete it by hand. `resume`, `use` or a title lifts it; journaling restarts in a new draft at the next prompt. Only run it on an explicit request — it deletes a file. |
+| `discard` | `journal.mjs discard`. Deletes the session's **draft** (or auto-titled) journal and stops journaling this session for good — a session not worth keeping (a quick question, an export, a false start). Refused on a named journal (it may hold other sessions and a plan): offer `pause` instead, or let the user delete it by hand. `resume`, `use` or a title lifts it; journaling restarts in a new draft at the next prompt. Only run it on an explicit request — it deletes a file. |
 | `search <words>` | See "Search". |
 | `last [N]` | List the N (default 5) most recent journals in the journals dir with their title (`# …`); for N=1, read it in full and summarize it. |
 | `init` | Set up the journal in this project (see "Setup"). |
-| anything else | It's a title: `journal.mjs rename <title>`. Date and NNN are kept, only the slug changes (the plan file follows). |
+| anything else | It's a title: `journal.mjs rename <title>`. Date and NNN are kept, only the slug changes (the plan file follows). Replaces an auto title, which then becomes final. |
+
+**Auto title**: a few seconds after a draft's first reply, a background `claude -p` (Haiku) call renames it with a short English title from the exchange (`autoTitle` in the config; `status` → `autoTitle: true`). That title is provisional: the first approved plan or `/journal <title>` replaces it, `discard` still deletes it. Failures (no `claude` CLI…) land in the error log and leave the draft as is — one attempt per session.
 
 The journals directory is `dir` in `.claude/journal.config.json` (project-level, optional; default `docs/journals`), plus the optional `project` subfolder. `dir` may also live outside the repo (network share, Google Drive) — then it is set per machine in `.claude/journal.config.local.json` and `project` defaults to the repo name. Wherever this skill says `<dir>`, use the absolute `dir` from `journal.mjs status`.
 
@@ -106,7 +108,7 @@ The PR body holds the session's (or branch's) syntheses, then links to the journ
 
 ## Rules
 
-- At the end of implementation work, if the journal is still a draft (`status` → `draft: true`), propose a title and run `/journal <title>` if the user agrees.
+- At the end of implementation work, if the journal is still a draft (`status` → `draft: true`), propose a title and run `/journal <title>` if the user agrees. If it carries an auto title (`autoTitle: true`) that no longer fits the work done, propose a better one the same way.
 - At the start of a session, the `SessionStart` hook lists recent journals: if the request clearly continues one of them, propose `/journal use <slug>`.
 - Never edit verbatim content already written, or the `<!-- journal:… -->` markers.
 - If the user is about to paste sensitive data, suggest `/journal pause`.

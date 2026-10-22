@@ -8,7 +8,7 @@ Historique des sessions Claude Code sur ce repo, écrit **automatiquement** par 
 | --- | --- |
 | `YYYY-MM-DD--NNN-<slug>.md` | le journal d'une feature : date de création + numéro du jour (`NNN`, repart à `001` chaque jour) + nom de la feature |
 | `plan-<slug>.md` | le dernier plan validé pour cette feature (les versions précédentes sont dans l'historique git) |
-| `…--NNN-brouillon-<id>.md` | journal d'une session pas encore nommée (pas de plan validé, pas de `/journal <titre>`) |
+| `…--NNN-brouillon-<id>.md` | journal d'une session pas encore nommée (pas de plan validé, pas de `/journal <titre>`) ; quelques secondes après la première réponse, il prend un titre anglais suggéré par un modèle, provisoire jusqu'au plan validé ou `/journal <titre>` |
 
 Un journal et son plan partagent le même `<slug>`.
 

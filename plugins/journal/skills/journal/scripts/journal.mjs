@@ -3,17 +3,17 @@
 // Entry point of the journal skill (github.com/appynamic/ai-dev-skills), for Claude Code and
 // Antigravity (`--agent antigravity`, see agents/antigravity.mjs). Two families of commands:
 //   hooks (read a JSON payload on stdin): session | prompt | stop | tool | precommit
-//   CLI   (called by /journal or by hand): status | rename | use | pause | resume | discard | verbosity | table | backfill | help
+//   CLI   (called by /journal or by hand): status | rename | use | pause | resume | discard | verbosity | table | backfill | autotitle | help
 // Hook commands must never break a Claude Code session: every error is swallowed into
 // .claude/journal-errors.log and the process exits 0. Only `precommit` may deny, on purpose.
 //
 // This plugin ships no per-project code (hooks load from hooks/hooks.json via ${CLAUDE_PLUGIN_ROOT},
 // so nothing needs copying into a consuming repo). The only thing that's per project is
-// `.claude/journal.config.json` (optional — `{ dir, project, locale, enforceCommit, verbosity, redact }`,
+// `.claude/journal.config.json` (optional — `{ dir, project, locale, enforceCommit, verbosity, redact, autoTitle }`,
 // see DEFAULT_CONFIG in journal-lib.mjs), written by `install.mjs`/`/journal init`, and its git-ignored
 // per-machine override `.claude/journal.config.local.json` (typically a `dir` on a network share or
 // a Google Drive, whose absolute path differs between Windows and Mac).
-import { execFileSync } from 'node:child_process';
+import { execFileSync, execSync, spawn } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -308,6 +308,50 @@ function hookStop(ctx, input) {
 	const blocks = lib.reconcileLastMessage(lib.extractAssistantBlocks(turn, ctx.verbosity), input.last_assistant_message, ctx.verbosity);
 	const files = lib.turnTouchedFiles(turn, ctx.root, ctx.excludeDirs);
 	appendBlock(file, lib.renderReply({ time: lib.localTime(), blocks: redactBlocks(ctx, blocks), files, labels: ctx.labels }));
+	startAutoTitle(ctx, sid, name);
+}
+
+// ─── Auto title ───────────────────────────────────────────────────────────────
+// A draft gets a model-suggested English title after its first reply, so `brouillon-<id>` doesn't
+// linger. Hooks can't wait on a model (they'd hold the session), hence a detached `autotitle`
+// process. The title stays provisional (AUTO_TITLE_MARKER): an approved plan or `/journal <title>`
+// replaces it, `/journal discard` still deletes the journal.
+
+/** Sessions whose draft already got its one auto-title attempt. @param {Ctx} ctx */
+function autoTitledPath(ctx) {
+	return path.join(ctx.root, ctx.configDir, 'journal-autotitled');
+}
+
+/** @param {Ctx} ctx @param {string} sessionId @param {string} name */
+function startAutoTitle(ctx, sessionId, name) {
+	if (ctx.config.autoTitle === false || !lib.parseJournalFileName(name)?.draft) return;
+	// A reply with no text (tools only, interrupted) gives the model nothing to name.
+	if (!/^\*\*[^*\n]+\*\* · \d{2}:\d{2}/m.test(read(path.join(ctx.dir, name)))) return;
+	const file = autoTitledPath(ctx);
+	const prev = read(file);
+	if (lib.parseDiscarded(prev).includes(sessionId)) return;
+	// One attempt per session, even a failed one: no model call on every turn when the CLI is missing.
+	write(file, lib.setDiscarded(prev, sessionId, true));
+	const child = spawn(process.execPath, [import.meta.filename, 'autotitle', '--session', sessionId, '--agent', ctx.agent], {
+		cwd: ctx.root,
+		env: { ...process.env, CLAUDE_PROJECT_DIR: ctx.root },
+		detached: true,
+		stdio: 'ignore',
+		windowsHide: true,
+	});
+	child.on('error', (err) => logError(ctx.root, err));
+	child.unref();
+}
+
+/** Default title command: Haiku, no settings (no plugins, hooks or CLAUDE.md), no tools, no saved session. */
+const TITLE_COMMAND = 'claude -p --model haiku --setting-sources= --tools= --no-session-persistence';
+
+/** @param {string | boolean | undefined} setting @param {string} prompt */
+function generateTitle(setting, prompt) {
+	const command = typeof setting === 'string' && setting.trim() ? setting : TITLE_COMMAND;
+	// CLAUDE_JOURNAL_DISABLED: a title command that loads this plugin must not journal itself.
+	const out = execSync(command, { input: prompt, encoding: 'utf8', cwd: os.tmpdir(), env: { ...process.env, CLAUDE_JOURNAL_DISABLED: '1' }, timeout: 90_000, windowsHide: true, stdio: ['pipe', 'pipe', 'pipe'] });
+	return lib.parseTitleOutput(out);
 }
 
 /** @param {Ctx} ctx @param {any} input */
@@ -334,13 +378,12 @@ function hookTool(ctx, input) {
 	}
 }
 
-/** Draft journals take their name from the first approved plan; the plan file always follows the journal's slug. @param {Ctx} ctx @param {string} name @param {string} planText */
+/** Provisional journals (draft, auto title) take their name from the first approved plan; the plan file always follows the journal's slug. @param {Ctx} ctx @param {string} name @param {string} planText */
 function recordPlan(ctx, name, planText) {
 	let current = name;
-	const parsed = lib.parseJournalFileName(current);
-	if (!parsed) return;
+	if (!lib.parseJournalFileName(current)) return;
 	const title = planTitle(planText);
-	if (parsed.draft) current = renameJournal(ctx, current, title);
+	if (lib.isProvisional(current, read(path.join(ctx.dir, current)))) current = renameJournal(ctx, current, title);
 	const slug = /** @type {NonNullable<ReturnType<typeof lib.parseJournalFileName>>} */ (lib.parseJournalFileName(current)).slug;
 	const planName = lib.planFileName(slug);
 	write(path.join(ctx.dir, planName), `> ${ctx.labels.journal} : [${current}](${current})\n\n${lib.normalizeText(planText)}\n`);
@@ -359,6 +402,7 @@ function planTitle(planText) {
 
 /**
  * Keeps date + NNN, changes the slug, carries the plan file along (git mv when tracked so history follows).
+ * The title is now a chosen one: a previous auto title's marker goes (autotitle sets it back).
  * @param {Ctx} ctx @param {string} name @param {string} title @param {string} [forcedSlug]
  */
 function renameJournal(ctx, name, title, forcedSlug) {
@@ -370,7 +414,7 @@ function renameJournal(ctx, name, title, forcedSlug) {
 	const oldPlan = lib.planFileName(parsed.slug);
 	const newPlan = lib.planFileName(slug);
 	const file = path.join(ctx.dir, next);
-	let content = lib.setTitle(read(file), lib.shortTitle(title));
+	let content = lib.setAutoTitled(lib.setTitle(read(file), lib.shortTitle(title)), false);
 	if (oldPlan !== newPlan && fs.existsSync(path.join(ctx.dir, oldPlan))) {
 		move(ctx, oldPlan, newPlan);
 		content = lib.setPlanLink(content, newPlan, ctx.labels).replaceAll(`](${oldPlan})`, `](${newPlan})`).replaceAll(`[${oldPlan}]`, `[${newPlan}]`);
@@ -557,6 +601,8 @@ async function hookAntigravity(cmd, ctx, input) {
 			const { installGitHook } = await import('./install.mjs');
 			installGitHook(ctx.root, { quiet: true, configDir: ctx.configDir });
 		}
+		const name = cmd === 'stop' && !isDiscarded(ctx, sid) ? findJournal(ctx, sid) : null;
+		if (name && !lib.isPaused(read(path.join(ctx.dir, name)), sid)) startAutoTitle(ctx, sid, name);
 	}
 	else if (cmd === 'precommit') {
 		const { command, cwd } = agy.commandOf(input);
@@ -574,7 +620,7 @@ function cmdStatus(ctx, args) {
 	const name = findJournal(ctx, sid);
 	const plan = name ? planOf(ctx, name) : null;
 	const content = name ? read(path.join(ctx.dir, name)) : '';
-	const out = { session: sid, dir: ctx.dir, journal: name ? rel(ctx, name) : null, plan: plan ? rel(ctx, plan) : null, draft: name ? Boolean(lib.parseJournalFileName(name)?.draft) : null, paused: name ? lib.isPaused(content, sid) : false, discarded: isDiscarded(ctx, sid), verbosity: ctx.verbosity, machine: machine() };
+	const out = { session: sid, dir: ctx.dir, journal: name ? rel(ctx, name) : null, plan: plan ? rel(ctx, plan) : null, draft: name ? Boolean(lib.parseJournalFileName(name)?.draft) : null, autoTitle: name ? lib.isAutoTitled(content) : null, paused: name ? lib.isPaused(content, sid) : false, discarded: isDiscarded(ctx, sid), verbosity: ctx.verbosity, machine: machine() };
 	process.stdout.write(`${JSON.stringify(out, null, 2)}\n`);
 }
 
@@ -608,13 +654,14 @@ function cmdUse(ctx, args) {
 	const date = lib.localDate();
 	let draftBody = '';
 	if (current) {
-		if (!lib.parseJournalFileName(current)?.draft) throw new Error(`session already attached to ${rel(ctx, current)}`);
 		const draftContent = read(path.join(ctx.dir, current));
+		if (!lib.isProvisional(current, draftContent)) throw new Error(`session already attached to ${rel(ctx, current)}`);
 		const at = draftContent.search(/^## /m);
 		draftBody = at === -1 ? '' : draftContent.slice(at);
 		fs.rmSync(path.join(ctx.dir, current));
 	}
-	write(targetFile, lib.attachSessionToHeader(read(targetFile), { sessionId: sid, date, machine: machine(), labels: ctx.labels }));
+	// A second session joining makes it a feature journal: an auto title is now the agreed one.
+	write(targetFile, lib.setAutoTitled(lib.attachSessionToHeader(read(targetFile), { sessionId: sid, date, machine: machine(), labels: ctx.labels }), false));
 	appendBlock(targetFile, draftBody || lib.renderSessionHeading({ date, sessionId: sid, machine: machine(), labels: ctx.labels }));
 	process.stdout.write(`${rel(ctx, target)}\n`);
 }
@@ -643,7 +690,7 @@ function cmdPause(ctx, args, pause) {
 function cmdDiscard(ctx, args) {
 	const sid = sessionFrom(args);
 	const name = findJournal(ctx, sid);
-	if (name && !lib.parseJournalFileName(name)?.draft) throw new Error(`${rel(ctx, name)} is a named journal (it may hold other sessions): discard only deletes drafts — use pause, or delete it by hand`);
+	if (name && !lib.isProvisional(name, read(path.join(ctx.dir, name)))) throw new Error(`${rel(ctx, name)} is a named journal (it may hold other sessions): discard only deletes drafts — use pause, or delete it by hand`);
 	markDiscarded(ctx, sid, true);
 	if (name) fs.rmSync(path.join(ctx.dir, name), { force: true });
 	process.stdout.write(`discarded: ${name ? `${rel(ctx, name)} deleted` : 'no journal to delete'}; nothing will be journaled for this session (resume to undo)\n`);
@@ -677,6 +724,25 @@ function cmdTable(ctx) {
 		// not a git repo or nothing staged
 	}
 	process.stdout.write(`${lib.renderChangeTable(out, ctx.labels) || '(no staged file)'}\n`);
+}
+
+/**
+ * Names the session's draft from its exchanges so far (run detached by the Stop hooks, or by hand).
+ * Leaves alone a journal that got a real name while the model was thinking.
+ * @param {Ctx} ctx @param {string[]} args
+ */
+function cmdAutotitle(ctx, args) {
+	const sid = sessionFrom(args);
+	const name = findJournal(ctx, sid);
+	if (!name || !lib.parseJournalFileName(name)?.draft) throw new Error(name ? `${rel(ctx, name)} is already named` : 'no journal for this session');
+	const title = generateTitle(ctx.config.autoTitle, lib.titlePrompt(read(path.join(ctx.dir, name))));
+	if (!title) throw new Error('the title command returned no usable title');
+	const current = findJournal(ctx, sid);
+	if (!current || !lib.parseJournalFileName(current)?.draft) return;
+	const next = renameJournal(ctx, current, title);
+	const file = path.join(ctx.dir, next);
+	write(file, lib.setAutoTitled(read(file), true));
+	process.stdout.write(`${rel(ctx, next)}\n`);
 }
 
 /**
@@ -811,7 +877,8 @@ CLI:
   verbosity <level> [--web]   final | text | text+tools
   table                       markdown table of staged files
   backfill <transcript.jsonl> [--title t] [--slug s] [--verbosity v] [--force]
-  dump <event>                diagnostic hook: saves payload/env/transcript to .agents/journal-dump/
+  autotitle                   names the session's draft with a model-suggested title (autoTitle in the config)
+  dump <event>               diagnostic hook: saves payload/env/transcript to .agents/journal-dump/
 Common options: --session <id> (default: $CLAUDE_CODE_SESSION_ID or $ANTIGRAVITY_CONVERSATION_ID), --agent claude|antigravity
 `;
 
@@ -823,6 +890,11 @@ async function main() {
 	const [cmd = 'help', ...args] = process.argv.slice(2);
 	if (cmd === 'dump') return cmdDump(args);
 	const agentFlag = takeFlag(args, '--agent');
+	// Set for the auto-title model call: a `claude -p` loading this plugin must not journal itself.
+	if (HOOKS.has(cmd) && process.env.CLAUDE_JOURNAL_DISABLED) {
+		if (agentFlag === 'antigravity') process.stdout.write(cmd === 'precommit' ? '{"decision":"allow"}\n' : '{}\n');
+		return;
+	}
 	if (HOOKS.has(cmd)) {
 		/** @type {any} */
 		let input = {};
@@ -874,8 +946,11 @@ async function main() {
 		else if (cmd === 'verbosity') cmdVerbosity(ctx, args);
 		else if (cmd === 'table') cmdTable(ctx);
 		else if (cmd === 'backfill') cmdBackfill(ctx, args);
+		else if (cmd === 'autotitle') cmdAutotitle(ctx, args);
 		else process.stdout.write(HELP);
 	} catch (err) {
+		// Detached from any terminal when a hook started it: the error log is the only witness.
+		if (cmd === 'autotitle') logError(ctx.root, err, { cmd });
 		process.stderr.write(`journal: ${err instanceof Error ? err.message : String(err)}\n`);
 		process.exitCode = 1;
 	}

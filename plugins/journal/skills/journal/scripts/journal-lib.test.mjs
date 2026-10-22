@@ -6,6 +6,42 @@ import * as lib from './journal-lib.mjs';
 
 const L = lib.LABELS.fr;
 
+describe('auto title', () => {
+	const header = lib.renderHeader({ title: 'Brouillon abcd1234', sessionId: 'abcd1234-x', date: '2026-10-21', machine: 'windows', labels: L });
+	const journal = `${header}\n## Session 2026-10-21 · abcd1234 (windows)\n\n> fix the login bug\n\n${lib.TURN_MARKER}\n\n**Claude** · 10:00\n\nFixed.\n\n${lib.REPLY_MARKER}\n`;
+
+	it('adds the marker once after the session marker, and removes it', () => {
+		const on = lib.setAutoTitled(lib.setAutoTitled(journal, true), true);
+		assert.equal(on.split(lib.AUTO_TITLE_MARKER).length, 2);
+		assert.ok(on.includes(`${lib.sessionMarker('abcd1234-x')}\n${lib.AUTO_TITLE_MARKER}\n`));
+		assert.ok(lib.isAutoTitled(on));
+		assert.equal(lib.setAutoTitled(on, false), journal);
+	});
+
+	it('provisional = draft file name or auto title', () => {
+		assert.ok(lib.isProvisional('2026-10-21--001-brouillon-abcd1234.md', journal));
+		assert.ok(!lib.isProvisional('2026-10-21--001-login-fix.md', journal));
+		assert.ok(lib.isProvisional('2026-10-21--001-login-fix.md', lib.setAutoTitled(journal, true)));
+	});
+
+	it('builds the prompt from the exchanges, without markers or header', () => {
+		const p = lib.titlePrompt(journal);
+		assert.ok(p.includes('> fix the login bug'));
+		assert.ok(p.includes('Fixed.'));
+		assert.ok(!p.includes('<!-- journal:'));
+		assert.ok(!p.includes('# Brouillon'));
+		assert.ok(lib.titlePrompt(journal + 'x'.repeat(20000)).length < lib.TITLE_PROMPT_MAX + 1000);
+	});
+
+	it('reduces model output to a title', () => {
+		assert.equal(lib.parseTitleOutput('Fixing Mobile Login Bug\n'), 'Fixing Mobile Login Bug');
+		assert.equal(lib.parseTitleOutput('**Title:** "Journal auto title."'), 'Journal auto title');
+		assert.equal(lib.parseTitleOutput('Sure!\n\n# Login bug fix'), 'Login bug fix');
+		assert.equal(lib.parseTitleOutput(''), '');
+		assert.equal(lib.parseTitleOutput('This is a whole sentence that goes on far too long to ever be a journal title'), '');
+	});
+});
+
 describe('discarded sessions', () => {
 	it('adds, dedupes and removes session ids', () => {
 		let c = lib.setDiscarded('', 'a', true);

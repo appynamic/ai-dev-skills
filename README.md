@@ -67,7 +67,7 @@ This asks for the journals directory (default `docs/journals`) and the verbosity
 
 | File | Why |
 | --- | --- |
-| `.claude/journal.config.json` | project settings: `dir`, `project`, `locale`, `enforceCommit`, `verbosity`, `redact` — committed, shared by the team (`journal.config.local.json` next to it: per-machine overrides, git-ignored) |
+| `.claude/journal.config.json` | project settings: `dir`, `project`, `locale`, `enforceCommit`, `verbosity`, `redact`, `autoTitle` — committed, shared by the team (`journal.config.local.json` next to it: per-machine overrides, git-ignored) |
 | `.claude/journal-git-hook.mjs` | self-contained trailer logic for **manual** commits (GitHub Desktop, terminal, CI) — committed, works even where the plugin isn't installed |
 | `.githooks/prepare-commit-msg` (or appended to an existing hook, e.g. husky's) | the actual git hook, wired via `core.hooksPath` |
 | `.gitattributes`, `.gitignore` | LF for the hook files; ignores `.claude/settings.local.json` and `.claude/journal-errors.log` |
@@ -138,7 +138,8 @@ The only things `/journal init` writes into your project are the two genuinely p
 	"locale": "fr",
 	"enforceCommit": true,
 	"verbosity": { "default": "final", "web": "text+tools" },
-	"redact": []
+	"redact": [],
+	"autoTitle": true
 }
 ```
 
@@ -148,6 +149,7 @@ The only things `/journal init` writes into your project are the two genuinely p
 - `enforceCommit` — `false` disables the refuse-incomplete-commit guard; the journal still gets staged on web.
 - `verbosity` — see below.
 - `redact` — extra regexes (as strings) to mask, on top of the built-in JWT/API-key/`password=`/private-key patterns.
+- `autoTitle` — after a draft's first reply, a background `claude -p --model haiku` call names it with a short English title from the exchange (one short Haiku call per session; needs the `claude` CLI on `PATH`, Antigravity included). A string replaces that command (prompt on stdin, title on stdout); `false` turns it off. The title stays provisional: an approved plan or `/journal <title>` replaces it.
 
 Change `dir` or verbosity later with `/journal init` again, or `/journal verbosity <level> [--web]` for verbosity alone.
 
@@ -206,7 +208,7 @@ Commit trailers point there portably: `Journal: acme/web-shop/2026-09-29--001-sh
 | Command | Effect |
 | --- | --- |
 | *(nothing)* | verbatim writes itself |
-| `/journal <title>` | names the session's journal (draft or existing) |
+| `/journal <title>` | names the session's journal (draft, auto-titled or existing) |
 | `/journal note` | synthesis + file table — required before a Claude-made commit |
 | `/journal use <slug>` | continue a journal from another session/machine |
 | `/journal pause` / `resume` | stop/resume recording (before pasting sensitive data) |
@@ -214,7 +216,7 @@ Commit trailers point there portably: `Journal: acme/web-shop/2026-09-29--001-sh
 | `/journal search <words>` / `last [N]` | find a past decision |
 | `/journal status` | journal, plan, verbosity of the current session |
 
-Naming: `YYYY-MM-DD--NNN-<slug>.md` (`NNN` = the day's sequence, restarts at `001` daily), paired with `plan-<slug>.md` (no date). A session without an approved plan starts as `…--NNN-brouillon-<id>.md`, renamed automatically at the first approved plan or via `/journal <title>`.
+Naming: `YYYY-MM-DD--NNN-<slug>.md` (`NNN` = the day's sequence, restarts at `001` daily), paired with `plan-<slug>.md` (no date). A session without an approved plan starts as `…--NNN-brouillon-<id>.md`; a few seconds after the first reply it gets a model-suggested English title (`autoTitle`), which the first approved plan or `/journal <title>` replaces.
 
 **Commits**: the journal never stages or commits on its own initiative, locally or on the web — see [plugins/journal/SKILL.md § Commit](plugins/journal/SKILL.md#commit--never-on-your-own-initiative). When a commit does happen (yours, or Claude's on your explicit request), the guard requires a synthesis and `Journal:`/`Plan:` trailers.
 
@@ -232,6 +234,7 @@ Naming: `YYYY-MM-DD--NNN-<slug>.md` (`NNN` = the day's sequence, restarts at `00
 | `/journal` → "no matching command" (Windows), no draft ever created | project-scope install made under the other drive-letter case (terminal `C:` vs VS Code `c:`) — `claude plugin install journal@ai-dev-skills --scope user`, then a new session. `install.mjs --check` flags it |
 | Git hook ignored on Mac | `git ls-files -s .githooks/prepare-commit-msg` should show `100755`; otherwise `git update-index --chmod=+x .githooks/prepare-commit-msg` |
 | Commit refused | read the reason: `/journal note`, then the synthesis in the commit body + `Journal:`/`Plan:` trailers |
+| Draft never gets a title | `claude` CLI not on `PATH` (or `autoTitle: false`); the failure is in `journal-errors.log`. One attempt per session — name it with `/journal <title>` |
 | Question/answer missing from the journal | `AskUserQuestion`'s output shape changed — the raw JSON is in `journal-errors.log`; open an issue |
 | Re-run setup after a config change | `/journal init` again — idempotent |
 | Antigravity: nothing gets written | `%APPDATA%\Antigravity\logs\language_server.log` (macOS/Linux: the app's logs dir) says why a `hooks.json` was rejected; then `.agents/journal-errors.log` |

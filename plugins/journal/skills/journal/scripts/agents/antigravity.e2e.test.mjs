@@ -65,6 +65,9 @@ describe('antigravity: hooks end to end', () => {
 		fs.mkdirSync(brain, { recursive: true });
 		transcript = path.join(brain, 'transcript_full.jsonl');
 		execFileSync('git', ['init', '-q'], { cwd: root });
+		// A detached model call renaming the draft mid-replay would make the file names below racy (journal.e2e.test.mjs covers it).
+		fs.mkdirSync(path.join(root, '.agents'));
+		fs.writeFileSync(path.join(root, '.agents', 'journal.config.json'), '{ "autoTitle": false }\n');
 		steps = relocate(agy.parseSteps(fs.readFileSync(path.join(FIXTURES, 'transcript_full.jsonl'), 'utf8')));
 		// The plan artifact Antigravity wrote at step 25.
 		const plan = agy.planArtifact(steps.find((s) => s.step_index === 25).tool_calls[0]);
