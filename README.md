@@ -65,6 +65,14 @@ cd c:\path\to\project; claude plugin uninstall journal@ai-dev-skills --scope pro
 
 Leftover project installs keep an old version pinned in that project, even after the user-scope one is updated. `installed_plugins.json` in `~/.claude/plugins/` lists every install with its `scope`, `projectPath` and `version`. If the uninstall removes `"journal@ai-dev-skills": true` from the project's `.claude/settings.json`, you can put it back: it only enables the user-scope plugin for the team. Open a new session afterwards.
 
+**Forcing an update** to the latest published version:
+
+```
+claude plugin update journal@ai-dev-skills
+```
+
+Then open a new session: a running one keeps the hooks of the version it started with.
+
 #### 3. Set up the project
 
 Inside the project you want journaled:
