@@ -62,7 +62,11 @@ function gitRoot(cwd) {
 
 /** @param {any} [input] */
 function projectRoot(input) {
-	if (process.env.CLAUDE_PROJECT_DIR) return path.resolve(process.env.CLAUDE_PROJECT_DIR);
+	// Claude's project dir is where it was launched, maybe a subfolder of the repo: the journal lives at the repo root.
+	if (process.env.CLAUDE_PROJECT_DIR) {
+		const dir = path.resolve(process.env.CLAUDE_PROJECT_DIR);
+		return gitRoot(dir) ?? dir;
+	}
 	// Antigravity runs hooks from the dir holding hooks.json (the plugin's, possibly): only the payload knows the workspace.
 	const ws = Array.isArray(input?.workspacePaths) ? input.workspacePaths[0] : undefined;
 	if (typeof ws === 'string' && ws) return gitRoot(ws) ?? path.resolve(ws);

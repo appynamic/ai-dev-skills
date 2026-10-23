@@ -74,3 +74,27 @@ describe('auto title end to end', () => {
 		assert.equal(journals().length, 1);
 	});
 });
+
+describe('launched from a subfolder of the repo', () => {
+	before(() => {
+		root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'journal-sub-')));
+		execFileSync('git', ['init', '-q'], { cwd: root });
+		fs.mkdirSync(path.join(root, '.claude'));
+		fs.writeFileSync(path.join(root, '.claude', 'journal.config.json'), `${JSON.stringify({ autoTitle: false })}\n`);
+		fs.mkdirSync(path.join(root, 'app'));
+	});
+	after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+	it('journals at the repo root, not in the launch folder', () => {
+		const sub = path.join(root, 'app');
+		const r = spawnSync(process.execPath, [JOURNAL, 'prompt'], {
+			input: JSON.stringify({ session_id: 'eeee0000-2', prompt: 'hello', cwd: sub }),
+			cwd: sub,
+			env: { ...Object.fromEntries(Object.entries(process.env).filter(([k]) => !/^CLAUDE|^ANTIGRAVITY/.test(k))), CLAUDE_PROJECT_DIR: sub },
+			encoding: 'utf8',
+		});
+		assert.equal(r.status, 0, r.stderr);
+		assert.equal(journals().length, 1);
+		assert.ok(!fs.existsSync(path.join(sub, 'docs')));
+	});
+});
