@@ -54,7 +54,7 @@ let errorConfigDir = '.claude';
 /** @param {string} cwd */
 function gitRoot(cwd) {
 	try {
-		return execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+		return execFileSync('git', ['rev-parse', '--show-toplevel'], { cwd, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
 	} catch {
 		return null;
 	}
@@ -229,7 +229,7 @@ function readStdin() {
 
 /** @param {string} root @param {string[]} args */
 function git(root, args) {
-	return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+	return execFileSync('git', args, { cwd: root, encoding: 'utf8', windowsHide: true, stdio: ['ignore', 'pipe', 'ignore'] });
 }
 
 /** @param {string[]} args @param {string} flag */

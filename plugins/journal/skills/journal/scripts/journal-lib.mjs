@@ -27,8 +27,9 @@ export const DEFAULT_CONFIG = { dir: 'docs/journals', locale: 'fr', enforceCommi
  * Spawn options for the background `autotitle` process, which must outlive the hook that starts it.
  * `detached` is required on every platform, win32 included: libuv puts each non-detached child in a
  * KILL_ON_JOB_CLOSE job object, so it dies the moment the hook's node exits (1.3.2 regression: drafts
- * were never renamed). A detached win32 child has no console, and the title command it runs through
- * execSync gets CREATE_NO_WINDOW from windowsHide, so no window is shown.
+ * were never renamed). A detached win32 child has no console, so EVERY console program it starts
+ * (the title command, but also each `git` call) needs windowsHide: without it Windows allocates a
+ * fresh console, shown as a Windows Terminal flash (1.3.3: two flashes, from the two git calls).
  */
 export function autoTitleSpawnOptions() {
 	return /** @type {const} */ ({ detached: true, stdio: 'ignore', windowsHide: true });
