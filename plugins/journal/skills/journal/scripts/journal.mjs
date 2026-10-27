@@ -339,7 +339,10 @@ function startAutoTitle(ctx, sessionId, name) {
 	const child = spawn(process.execPath, [import.meta.filename, 'autotitle', '--session', sessionId, '--agent', ctx.agent], {
 		cwd: ctx.root,
 		env: { ...process.env, CLAUDE_PROJECT_DIR: ctx.root },
-		detached: true,
+		// On win32 `detached` means DETACHED_PROCESS: the child has no console, so the title command's
+		// cmd.exe/claude must allocate a fresh one, and windowsHide doesn't reach grandchildren → a visible
+		// console flash. Inheriting the hook's (hidden) console avoids it; a win32 child outlives its parent anyway.
+		detached: process.platform !== 'win32',
 		stdio: 'ignore',
 		windowsHide: true,
 	});
