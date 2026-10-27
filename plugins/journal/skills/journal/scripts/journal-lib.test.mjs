@@ -403,3 +403,21 @@ describe('journal dir', () => {
 		assert.equal(lib.resolveJournalDir('/Users/n/app', { dir: '/Volumes/j', project: '../../etc' }, '/Users/n').dir, '/Volumes/j/etc');
 	});
 });
+
+describe('autoTitleSpawnOptions', () => {
+	it('keeps the autotitle child alive after the hook process exits', async () => {
+		const { spawnSync } = await import('node:child_process');
+		const fs = await import('node:fs');
+		const os = await import('node:os');
+		const path = await import('node:path');
+		const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'journal-spawn-'));
+		const marker = path.join(dir, 'alive');
+		const child = `setTimeout(() => require('fs').writeFileSync(${JSON.stringify(marker)}, 'ok'), 1000)`;
+		const hook = `require('child_process').spawn(process.execPath, ['-e', ${JSON.stringify(child)}], ${JSON.stringify(lib.autoTitleSpawnOptions())}).unref()`;
+		spawnSync(process.execPath, ['-e', hook], { windowsHide: true });
+		await new Promise((resolve) => setTimeout(resolve, 2500));
+		const alive = fs.existsSync(marker);
+		fs.rmSync(dir, { recursive: true, force: true });
+		assert.ok(alive, 'the detached child was killed with its parent');
+	});
+});

@@ -23,6 +23,17 @@ export const VERBOSITIES = ['final', 'text', 'text+tools'];
 /** @type {JournalConfig} */
 export const DEFAULT_CONFIG = { dir: 'docs/journals', locale: 'fr', enforceCommit: true, verbosity: { default: 'final', web: 'text+tools' }, redact: [], autoTitle: true };
 
+/**
+ * Spawn options for the background `autotitle` process, which must outlive the hook that starts it.
+ * `detached` is required on every platform, win32 included: libuv puts each non-detached child in a
+ * KILL_ON_JOB_CLOSE job object, so it dies the moment the hook's node exits (1.3.2 regression: drafts
+ * were never renamed). A detached win32 child has no console, and the title command it runs through
+ * execSync gets CREATE_NO_WINDOW from windowsHide, so no window is shown.
+ */
+export function autoTitleSpawnOptions() {
+	return /** @type {const} */ ({ detached: true, stdio: 'ignore', windowsHide: true });
+}
+
 export const LABELS = {
 	fr: { claude: 'Claude', asks: 'Claude demande', options: 'Options', choice: 'choix', note: 'note', free: 'libre', noAnswer: 'sans réponse', files: 'fichiers', interrupted: 'tour interrompu', plan: 'Plan', sessions: 'Sessions', session: 'Session', none: '—', planValidated: 'Plan validé', draft: 'Brouillon', journal: 'Journal', file: 'Fichier', change: 'Changement', image: 'image jointe', status: { A: 'nouveau', M: 'modifié', D: 'supprimé', R: 'renommé', C: 'copié', T: 'type modifié', U: 'en conflit' } },
 	en: { claude: 'Claude', asks: 'Claude asks', options: 'Options', choice: 'choice', note: 'note', free: 'free text', noAnswer: 'no answer', files: 'files', interrupted: 'interrupted turn', plan: 'Plan', sessions: 'Sessions', session: 'Session', none: '—', planValidated: 'Plan approved', draft: 'Draft', journal: 'Journal', file: 'File', change: 'Change', image: 'attached image', status: { A: 'added', M: 'modified', D: 'deleted', R: 'renamed', C: 'copied', T: 'type changed', U: 'conflicted' } },
