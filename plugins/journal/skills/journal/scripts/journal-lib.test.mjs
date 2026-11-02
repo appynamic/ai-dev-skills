@@ -97,6 +97,17 @@ describe('slugify / names', () => {
 		assert.equal(lib.planTitle('intro\n# Mon plan — détails\n## x'), 'Mon plan — détails');
 		assert.equal(lib.shortTitle('Mon plan — détails'), 'Mon plan');
 	});
+
+	it('names the feature, not "Plan", in a `Plan — X` title', () => {
+		const t = lib.shortTitle('Plan — `submitted` relayé sur `support.dossier_complet` — détails');
+		assert.equal(t, 'submitted relayé sur support.dossier_complet');
+		assert.equal(lib.slugify(t), 'submitted-relaye-support-dossier-complet');
+		assert.equal(lib.shortTitle('Plan: refonte webhooks'), 'refonte webhooks');
+		assert.ok(!lib.hasSlugWords('Plan'));
+		assert.ok(!lib.hasSlugWords('!!!'));
+		assert.ok(lib.hasSlugWords('Journal plugin'));
+		assert.ok(lib.hasSlugWords(t));
+	});
 });
 
 describe('quotePrompt / cleanPrompt', () => {

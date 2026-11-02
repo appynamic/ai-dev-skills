@@ -75,6 +75,38 @@ describe('auto title end to end', () => {
 	});
 });
 
+describe('approved plan on an auto-titled journal', () => {
+	const sid = 'bbbb2222-0000-4000-8000-000000000000';
+	before(() => {
+		root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'journal-plan-')));
+		execFileSync('git', ['init', '-q'], { cwd: root });
+		const fake = `node -e "process.stdin.resume();process.stdin.on('end',()=>console.log('Webhook Submitted Status'))"`;
+		fs.mkdirSync(path.join(root, '.claude'));
+		fs.writeFileSync(path.join(root, '.claude', 'journal.config.json'), `${JSON.stringify({ autoTitle: fake })}\n`);
+		run(['prompt'], JSON.stringify({ session_id: sid, prompt: 'statut submitted du dossier' }));
+		fs.appendFileSync(path.join(root, 'docs', 'journals', journals()[0]), `\n**Claude** · 10:00\n\nOk.\n\n${lib.REPLY_MARKER}\n`);
+		run(['autotitle', '--session', sid]);
+	});
+	after(() => fs.rmSync(root, { recursive: true, force: true }));
+
+	/** @param {string} plan */
+	const approve = (plan) => run(['tool'], JSON.stringify({ session_id: sid, tool_name: 'ExitPlanMode', tool_input: { plan }, tool_response: { plan } }));
+	const plans = () => fs.readdirSync(path.join(root, 'docs', 'journals')).filter((n) => n.startsWith('plan-'));
+
+	it('keeps the auto title when the plan is titled only "Plan"', () => {
+		approve('# Plan\n\n## Context\n\nx');
+		assert.match(journals()[0], /--001-webhook-submitted-status\.md$/);
+		assert.deepEqual(plans(), ['plan-webhook-submitted-status.md']);
+	});
+
+	it('names journal and plan after a `Plan — X — details` title, not `journal`', () => {
+		approve('# Plan — `submitted` relayé sur `support.dossier_complet` — plafond 256 Ko\n\nx');
+		assert.match(journals()[0], /--001-submitted-relaye-support-dossier-complet\.md$/);
+		assert.deepEqual(plans(), ['plan-submitted-relaye-support-dossier-complet.md']);
+		assert.match(readJournal(journals()[0]), /^# submitted relayé sur support\.dossier_complet$/m);
+	});
+});
+
 describe('launched from a subfolder of the repo', () => {
 	before(() => {
 		root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'journal-sub-')));

@@ -264,9 +264,19 @@ export function slugify(title, maxWords = 5) {
 	return words.slice(0, maxWords).join('-').slice(0, 60).replace(/-+$/, '') || 'journal';
 }
 
-/** @param {string} title */
+/**
+ * The feature name in a plan / journal title: no `Plan —` prefix, no subtitle after a dash.
+ * The prefix goes first: `Plan — X — details` names X, not "Plan".
+ * @param {string} title
+ */
 export function shortTitle(title) {
-	return String(title ?? '').split(/\s[—–-]\s/)[0].replace(/^plan\s*[:—-]\s*/i, '').trim();
+	const head = String(title ?? '').trim().replace(/^plan\s*[:—–-]\s*/i, '');
+	return head.split(/\s[—–-]\s/)[0].replace(/`/g, '').trim();
+}
+
+/** Does the title hold a word worth a slug (slugify would not fall back to `journal`)? @param {string} title */
+export function hasSlugWords(title) {
+	return slugify(title) !== 'journal' || /\bjournal\b/i.test(String(title ?? ''));
 }
 
 export const JOURNAL_RE = /^(\d{4}-\d{2}-\d{2})--(\d{3})-(.+)\.md$/;

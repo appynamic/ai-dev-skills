@@ -385,7 +385,8 @@ function recordPlan(ctx, name, planText) {
 	let current = name;
 	if (!lib.parseJournalFileName(current)) return;
 	const title = planTitle(planText);
-	if (lib.isProvisional(current, read(path.join(ctx.dir, current)))) current = renameJournal(ctx, current, title);
+	// A plan titled only "Plan" (or punctuation) would rename a meaningful draft title to `journal`.
+	if (lib.hasSlugWords(title) && lib.isProvisional(current, read(path.join(ctx.dir, current)))) current = renameJournal(ctx, current, title);
 	const slug = /** @type {NonNullable<ReturnType<typeof lib.parseJournalFileName>>} */ (lib.parseJournalFileName(current)).slug;
 	const planName = lib.planFileName(slug);
 	write(path.join(ctx.dir, planName), `> ${ctx.labels.journal} : [${current}](${current})\n\n${lib.normalizeText(planText)}\n`);
