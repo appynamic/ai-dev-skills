@@ -1,0 +1,6 @@
+#!/bin/sh
+# journal-skill:start
+# Installed by the journal plugin (Claude Code / Antigravity) (https://github.com/appynamic/ai-dev-skills).
+# Actual logic lives in .claude/journal-git-hook.mjs (project-committed, self-contained).
+node "$(git rev-parse --show-toplevel)/.claude/journal-git-hook.mjs" "$@"
+# journal-skill:end

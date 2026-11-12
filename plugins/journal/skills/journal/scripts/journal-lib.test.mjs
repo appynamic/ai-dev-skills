@@ -368,6 +368,34 @@ describe('commit guard', () => {
 	});
 });
 
+describe('cloud enablement (.claude/settings.json)', () => {
+	const source = { source: { source: 'github', repo: 'appynamic/ai-dev-skills' } };
+
+	it('declares the marketplace and enables the plugin, keeping other keys', () => {
+		const out = lib.withCloudPlugin({ permissions: { allow: ['Bash(ls)'] }, enabledPlugins: { 'x@y': true } });
+		assert.deepEqual(out, { permissions: { allow: ['Bash(ls)'] }, enabledPlugins: { 'x@y': true, 'journal@ai-dev-skills': true }, extraKnownMarketplaces: { 'ai-dev-skills': source } });
+		assert.deepEqual(lib.withCloudPlugin(out), out, 'idempotent');
+	});
+
+	it('keeps a marketplace source already declared (fork, local dir)', () => {
+		const custom = { source: { source: 'directory', path: '.' } };
+		assert.deepEqual(lib.withCloudPlugin({ extraKnownMarketplaces: { 'ai-dev-skills': custom } }).extraKnownMarketplaces['ai-dev-skills'], custom);
+	});
+
+	it('removes exactly what it added, emptying the object when nothing else is left', () => {
+		assert.deepEqual(lib.withCloudPlugin(lib.withCloudPlugin({}), true), {});
+		const other = lib.withCloudPlugin({ enabledPlugins: { 'other@ai-dev-skills': true } });
+		assert.deepEqual(lib.withCloudPlugin(other, true), { enabledPlugins: { 'other@ai-dev-skills': true }, extraKnownMarketplaces: { 'ai-dev-skills': source } }, 'marketplace kept while another of its plugins is on');
+	});
+
+	it('flags a missing or disabled plugin and a missing marketplace', () => {
+		assert.match(lib.cloudPluginProblems(null)[0], /not enabled/);
+		assert.match(lib.cloudPluginProblems({ enabledPlugins: { 'journal@ai-dev-skills': false } })[0], /not enabled/);
+		assert.match(lib.cloudPluginProblems({ enabledPlugins: { 'journal@ai-dev-skills': true } })[0], /marketplace/);
+		assert.deepEqual(lib.cloudPluginProblems(lib.withCloudPlugin({})), []);
+	});
+});
+
 describe('plugin install scope', () => {
 	const at = (projectPath) => ({ scope: 'project', projectPath });
 	const inst = (...list) => ({ plugins: { 'journal@ai-dev-skills': list } });

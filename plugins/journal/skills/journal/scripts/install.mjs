@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { pluginInstallProblems, resolveJournalDir } from './journal-lib.mjs';
+import { cloudPluginProblems, pluginInstallProblems, resolveJournalDir, withCloudPlugin } from './journal-lib.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = path.resolve(SCRIPT_DIR, '..');
@@ -356,6 +356,28 @@ function installConfig(root, t, opts) {
 	if (Object.keys(local).length || read(localFile) !== null) apply(localFile, Object.keys(local).length ? `${JSON.stringify(local, null, '\t')}\n` : '', { ...opts, uninstall: !Object.keys(local).length }, localLabel);
 }
 
+/**
+ * Committed .claude/settings.json: declares the marketplace and enables the plugin, so a Claude Code
+ * web session (fresh clone, no user-scope install) loads the hooks too. Other keys are kept.
+ * @param {string} root @param {Opts & { uninstall?: boolean }} opts
+ */
+function installSettings(root, opts) {
+	const file = path.join(root, '.claude', 'settings.json');
+	const prev = read(file);
+	if (prev === null && opts.uninstall) return;
+	let settings;
+	try {
+		settings = JSON.parse(prev ?? '{}');
+	} catch {
+		return log(opts, '  ⚠ .claude/settings.json is not valid JSON: left as is (plugin not enabled for Claude Code web)');
+	}
+	const next = withCloudPlugin(settings, opts.uninstall);
+	const indent = prev?.match(/^\{\r?\n([ \t]+)/)?.[1] ?? '\t';
+	const text = Object.keys(next).length ? `${JSON.stringify(next, null, indent)}\n` : '';
+	if (prev !== null && JSON.stringify(next) === JSON.stringify(settings)) return log(opts, '  = .claude/settings.json (plugin enabled)');
+	apply(file, text, opts, '.claude/settings.json (plugin enabled)');
+}
+
 // ─── check ────────────────────────────────────────────────────────────────────
 
 /** @param {string} root @param {JournalDir} jd @param {Target} t */
@@ -379,6 +401,10 @@ function check(root, jd, t) {
 		const local = tryGit(root, ['check-ignore', '-q', '--no-index', '.claude/settings.local.json']);
 		if (local === null && fs.existsSync(path.join(root, '.claude', 'settings.local.json'))) problems.push('.claude/settings.local.json is not git-ignored (risk of committing it)');
 		problems.push(...installScopeProblems(root));
+		const settingsFile = path.join(root, '.claude', 'settings.json');
+		const ignored = tryGit(root, ['check-ignore', '--no-index', '-v', '.claude/settings.json']);
+		if (ignored) problems.push(`git-ignored: .claude/settings.json  ←  ${ignored}`);
+		problems.push(...cloudPluginProblems(read(settingsFile) === null ? null : readJson(settingsFile)));
 	}
 	return problems;
 }
@@ -458,6 +484,7 @@ function main() {
 	installGitignore(root, t, opts);
 	installPackageJson(root, usesGithooksDir, opts);
 	installMemoryFile(root, jd, t, opts);
+	if (t.name === 'claude') installSettings(root, opts);
 	const dirProblems = jd.external && !opts.uninstall ? externalDirProblems(jd) : [];
 	for (const p of dirProblems) log(opts, `⚠ ${p}`);
 	if (!dirProblems.length) installJournalsReadme(jd, opts);

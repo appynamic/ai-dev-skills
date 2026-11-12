@@ -884,3 +884,42 @@ export function pluginInstallProblems(installed, root, platform) {
 	if (platform === 'win32') return [`journal plugin installed at project scope only (${mine.map((e) => e.projectPath).join(', ')}): Claude Code matches the path case-sensitively, so a session opened with the other drive-letter case (terminal "C:" vs VS Code "c:") won't load it → ${fix}`];
 	return [];
 }
+
+// ─── Cloud enablement ─────────────────────────────────────────────────────────
+
+export const MARKETPLACE = 'ai-dev-skills';
+export const PLUGIN_ID = `journal@${MARKETPLACE}`;
+const MARKETPLACE_SOURCE = { source: 'github', repo: 'appynamic/ai-dev-skills' };
+
+/**
+ * A user-scope install never reaches a Claude Code web VM (fresh clone, empty ~/.claude): only the
+ * project's committed .claude/settings.json does. Declares the marketplace and enables the plugin
+ * there, keeping every other key. `remove` undoes exactly that (the marketplace stays while another
+ * of its plugins is still enabled). Returns a new object.
+ * @param {Record<string, any>} settings @param {boolean} [remove]
+ */
+export function withCloudPlugin(settings, remove = false) {
+	const out = { ...settings };
+	const enabled = { ...(out.enabledPlugins ?? {}) };
+	const markets = { ...(out.extraKnownMarketplaces ?? {}) };
+	if (remove) {
+		delete enabled[PLUGIN_ID];
+		if (!Object.keys(enabled).some((id) => id.endsWith(`@${MARKETPLACE}`))) delete markets[MARKETPLACE];
+	} else {
+		enabled[PLUGIN_ID] = true;
+		markets[MARKETPLACE] ??= { source: MARKETPLACE_SOURCE };
+	}
+	for (const [key, val] of /** @type {const} */ ([['enabledPlugins', enabled], ['extraKnownMarketplaces', markets]])) {
+		if (Object.keys(val).length) out[key] = val;
+		else delete out[key];
+	}
+	return out;
+}
+
+/** @param {Record<string, any> | null} settings */
+export function cloudPluginProblems(settings) {
+	const fix = 'run install.mjs, then commit .claude/settings.json';
+	if (settings?.enabledPlugins?.[PLUGIN_ID] !== true) return [`journal plugin not enabled in .claude/settings.json: Claude Code web won't load it → ${fix}`];
+	if (!settings?.extraKnownMarketplaces?.[MARKETPLACE]) return [`marketplace ${MARKETPLACE} not declared in .claude/settings.json: Claude Code web can't install the plugin → ${fix}`];
+	return [];
+}

@@ -1,0 +1,13 @@
+{
+	"enabledPlugins": {
+		"journal@ai-dev-skills": true
+	},
+	"extraKnownMarketplaces": {
+		"ai-dev-skills": {
+			"source": {
+				"source": "github",
+				"repo": "appynamic/ai-dev-skills"
+			}
+		}
+	}
+}
