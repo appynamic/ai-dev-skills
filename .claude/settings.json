@@ -9,5 +9,64 @@
 				"repo": "appynamic/ai-dev-skills"
 			}
 		}
+	},
+	"hooks": {
+		"SessionStart": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "if [ \"$CLAUDE_CODE_REMOTE\" = \"true\" ]; then node \"$CLAUDE_PROJECT_DIR/plugins/journal/skills/journal/scripts/journal.mjs\" session; fi",
+						"timeout": 30
+					}
+				]
+			}
+		],
+		"UserPromptSubmit": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "if [ \"$CLAUDE_CODE_REMOTE\" = \"true\" ]; then node \"$CLAUDE_PROJECT_DIR/plugins/journal/skills/journal/scripts/journal.mjs\" prompt; fi",
+						"timeout": 30
+					}
+				]
+			}
+		],
+		"Stop": [
+			{
+				"hooks": [
+					{
+						"type": "command",
+						"command": "if [ \"$CLAUDE_CODE_REMOTE\" = \"true\" ]; then node \"$CLAUDE_PROJECT_DIR/plugins/journal/skills/journal/scripts/journal.mjs\" stop; fi",
+						"timeout": 30
+					}
+				]
+			}
+		],
+		"PostToolUse": [
+			{
+				"matcher": "AskUserQuestion|ExitPlanMode",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "if [ \"$CLAUDE_CODE_REMOTE\" = \"true\" ]; then node \"$CLAUDE_PROJECT_DIR/plugins/journal/skills/journal/scripts/journal.mjs\" tool; fi",
+						"timeout": 30
+					}
+				]
+			}
+		],
+		"PreToolUse": [
+			{
+				"matcher": "Bash|PowerShell",
+				"hooks": [
+					{
+						"type": "command",
+						"command": "if [ \"$CLAUDE_CODE_REMOTE\" = \"true\" ]; then node \"$CLAUDE_PROJECT_DIR/plugins/journal/skills/journal/scripts/journal.mjs\" precommit; fi",
+						"timeout": 30
+					}
+				]
+			}
+		]
 	}
 }
