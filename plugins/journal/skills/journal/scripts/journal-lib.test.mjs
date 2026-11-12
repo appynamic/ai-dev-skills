@@ -480,3 +480,22 @@ describe('withCloudHooks', () => {
 		assert.equal(lib.cloudHookProblems(null).length, 1);
 	});
 });
+
+describe('commit guard: heredocs', () => {
+	const journal = 'Journal: docs/journals/x.md';
+	it('reads the heredoc of git commit, not an earlier one', () => {
+		const cmd = `cat >> notes.md <<'EOF'\nsynthesis\nEOF\ngit add -A && git commit -F - <<'EOF'\nsubject\n\nbody\n\n${journal}\nEOF`;
+		assert.equal(lib.extractCommitMessage(cmd), `subject\n\nbody\n\n${journal}`);
+	});
+	it('reads -m after git commit only', () => {
+		assert.equal(lib.extractCommitMessage('grep -m 1 x f && git commit -m "s" -m "b"'), 's\n\nb');
+	});
+	it('falls back to a heredoc piped into git commit -F -', () => {
+		assert.equal(lib.extractCommitMessage("cat <<'EOF' | git commit -F -\nsubject\nEOF"), 'subject');
+	});
+	it('ignores git commit inside a heredoc body', () => {
+		assert.equal(lib.isGitCommit("python3 - <<'PY'\nx = '''\ngit commit -m x\n'''\nPY"), false);
+		assert.equal(lib.isGitCommit("cat <<'EOF' | git commit -F -\nsubject\nEOF"), true);
+		assert.deepEqual(lib.commitDirs("cat > f <<'EOF'\ncd /elsewhere\ngit commit\nEOF"), []);
+	});
+});

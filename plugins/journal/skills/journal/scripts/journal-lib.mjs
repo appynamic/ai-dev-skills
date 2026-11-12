@@ -713,9 +713,18 @@ export function resolveVerbosity(config, env) {
 
 /** @param {string} command */
 export function isGitCommit(command) {
-	return String(command ?? '')
+	return stripHeredocs(command)
 		.split(/&&|\|\||;|\n|\|/)
 		.some((seg) => GIT_COMMIT_RE.test(seg));
+}
+
+/**
+ * A heredoc body is data (a script, a file, a commit message), not commands: a line in it that
+ * reads like `git commit` must not count. Keeps the rest of the opening line (`| git commit -F -`).
+ * @param {string} command
+ */
+export function stripHeredocs(command) {
+	return String(command ?? '').replace(/<<-?\s*(['"]?)(\w+)\1([^\n]*)\n[\s\S]*?\n\s*\2\b/g, '<<$2$3');
 }
 
 const GIT_COMMIT_RE = /^\s*\(*\s*(?:[A-Za-z_][A-Za-z0-9_]*=\S*\s+)*(?:rtk\s+)?git(?:\s+-[cC]\s+(?:"[^"]*"|'[^']*'|\S+))*\s+commit\b/;
@@ -747,7 +756,7 @@ export function commitDirs(command, env = {}) {
 	let cwd = [];
 	/** @type {(string[] | null)[]} */
 	const out = [];
-	for (const raw of String(command ?? '').split(/&&|\|\||;|\n|\|/)) {
+	for (const raw of stripHeredocs(command).split(/&&|\|\||;|\n|\|/)) {
 		const seg = raw.trim().replace(/^\(+\s*/, '').replace(/\s*\)+$/, '');
 		const assign = seg.match(new RegExp(`^(?:export\\s+|\\$)?([A-Za-z_]\\w*)\\s*=\\s*${SHELL_ARG}$`));
 		if (assign) {
@@ -778,9 +787,16 @@ export function isAmendNoEdit(command) {
  * @param {(file: string) => string | null} [readFile]
  * @returns {string | null} null when the message comes from an editor or cannot be read
  */
+const HEREDOC_RE = /<<-?\s*(['"]?)(\w+)\1[^\n]*\n([\s\S]*?)\n\s*\2\b/;
+
 export function extractCommitMessage(command, readFile = () => null) {
-	const cmd = String(command ?? '');
-	const heredoc = cmd.match(/<<-?\s*(['"]?)(\w+)\1[^\n]*\n([\s\S]*?)\n\s*\2\b/);
+	const full = String(command ?? '');
+	// Only what follows `git commit` is its message: an earlier heredoc or -m (`cat >> file <<EOF`,
+	// `echo -m`…) belongs to another command of the same line. `cat <<EOF | git commit -F -` is the
+	// one case where the message comes before: fall back to the start of the command for it then.
+	const at = full.search(/\bgit(?:\s+-[cC]\s+(?:"[^"]*"|'[^']*'|\S+))*\s+commit\b/);
+	const cmd = at >= 0 ? full.slice(at) : full;
+	const heredoc = cmd.match(HEREDOC_RE) ?? (at >= 0 && /(?:-F|--file)(?:\s+|=)-(?:\s|$)/.test(cmd) ? [...full.matchAll(new RegExp(HEREDOC_RE, "g"))].filter((m) => (m.index ?? 0) < at).at(-1) ?? null : null);
 	if (heredoc) return heredoc[3];
 	const psHere = cmd.match(/@(['"])\r?\n([\s\S]*?)\r?\n\1@/);
 	if (psHere) return psHere[2];

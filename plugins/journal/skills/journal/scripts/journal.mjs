@@ -507,7 +507,8 @@ function precommitReason(ctx, { command, cwd, sid }) {
 		'1. Run `/journal note` (synthesis + file table in the journal).',
 		'2. Reuse that synthesis in the commit BODY (after the subject line).',
 		`3. End with the trailers: Journal: ${journalRel}${planRel ? ` then Plan: ${planRel}` : ''}, before Co-Authored-By.`,
-		'Then retry the same commit.',
+		'Nothing in the blocked command ran: redo any step chained before the commit (edits, `git add`…), and run the commit as a command of its own.',
+		'Then retry the commit.',
 	].join('\n');
 }
 

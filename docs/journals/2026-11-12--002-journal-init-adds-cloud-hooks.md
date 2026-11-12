@@ -79,3 +79,24 @@ Suites : relancer `/journal init` dans chaque repo après une mise à jour du pl
 | `plugins/journal/skills/journal/scripts/install.mjs` | modifié — copie du runtime cloud, hooks, check, uninstall |
 | `plugins/journal/skills/journal/scripts/journal-lib.mjs` | modifié — withCloudHooks, cloudHookProblems |
 | `plugins/journal/skills/journal/scripts/journal-lib.test.mjs` | modifié — tests des hooks cloud |
+
+--------------------------------------------
+
+> oui, corrige ces deux points et tu as le droit de commiter les modifications
+
+<!-- journal:turn -->
+
+### Synthèse · 2026-11-12 15:40
+
+Résumé : correction du guard de commit après trois blocages observés dans cette session web. 1) `extractCommitMessage` lisait le premier heredoc de la commande (un `cat >> journal <<EOF`) au lieu de celui du `git commit` ; il lit désormais ce qui suit le `git commit`, avec repli sur un heredoc placé avant pour `cat <<EOF | git commit -F -`. 2) Une ligne ressemblant à `git commit` dans le corps d'un heredoc (script Python) déclenchait le guard ; `isGitCommit` et `commitDirs` ignorent maintenant les corps de heredoc (`stripHeredocs`). 3) Un blocage annule toute la commande : le message de refus le dit et demande de lancer le commit à part.
+Décisions : on ne peut pas exécuter partiellement une commande depuis un PreToolUse, donc on explique au lieu de contourner ; le chemin `Journal: $J` n'était pas en cause, puisque le trailer est seulement vérifié par motif.
+Suites : relancer `/journal init` dans les repos qui ont la copie `.claude/journal-runtime/` ; test antigravity e2e toujours en échec, comme avant.
+
+| Fichier | Changement |
+| --- | --- |
+| `.claude-plugin/marketplace.json` | modifié — version 1.3.8 |
+| `docs/journals/2026-11-12--002-journal-init-adds-cloud-hooks.md` | modifié — synthèse du correctif |
+| `plugins/journal/.claude-plugin/plugin.json` | modifié — version 1.3.8 |
+| `plugins/journal/skills/journal/scripts/journal-lib.mjs` | modifié — heredoc du commit, stripHeredocs |
+| `plugins/journal/skills/journal/scripts/journal-lib.test.mjs` | modifié — 4 tests heredoc |
+| `plugins/journal/skills/journal/scripts/journal.mjs` | modifié — message de refus explicite |
