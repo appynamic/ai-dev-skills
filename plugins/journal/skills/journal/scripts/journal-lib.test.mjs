@@ -460,3 +460,23 @@ describe('autoTitleSpawnOptions', () => {
 		assert.ok(alive, 'the detached child was killed with its parent');
 	});
 });
+
+describe('withCloudHooks', () => {
+	it('adds the five gated hooks, keeps other hooks, idempotent', () => {
+		const other = { matcher: 'Bash', hooks: [{ type: 'command', command: 'echo hi' }] };
+		const out = lib.withCloudHooks({ hooks: { PreToolUse: [other] }, model: 'x' });
+		assert.equal(out.model, 'x');
+		assert.deepEqual(out.hooks.PreToolUse[0], other);
+		assert.equal(out.hooks.PreToolUse.length, 2);
+		assert.equal(out.hooks.PreToolUse[1].matcher, 'Bash|PowerShell');
+		assert.match(out.hooks.SessionStart[0].hooks[0].command, /CLAUDE_CODE_REMOTE.*journal-runtime\/journal\.mjs" session/);
+		assert.deepEqual(lib.withCloudHooks(out), out);
+		assert.deepEqual(lib.cloudHookProblems(out), []);
+	});
+	it('replaces legacy plugins/ path hooks and removes cleanly', () => {
+		const legacy = { hooks: { Stop: [{ hooks: [{ type: 'command', command: 'if [ "$CLAUDE_CODE_REMOTE" = "true" ]; then node "$CLAUDE_PROJECT_DIR/plugins/journal/skills/journal/scripts/journal.mjs" stop; fi' }] }] } };
+		assert.equal(lib.withCloudHooks(legacy).hooks.Stop.length, 1);
+		assert.deepEqual(lib.withCloudHooks(lib.withCloudHooks({}), true), {});
+		assert.equal(lib.cloudHookProblems(null).length, 1);
+	});
+});

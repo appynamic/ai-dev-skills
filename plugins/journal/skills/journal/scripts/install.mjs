@@ -18,7 +18,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { cloudPluginProblems, pluginInstallProblems, resolveJournalDir, withCloudPlugin } from './journal-lib.mjs';
+import { CLOUD_RUNTIME_DIR, CLOUD_RUNTIME_FILES, cloudHookProblems, cloudPluginProblems, pluginInstallProblems, resolveJournalDir, withCloudHooks, withCloudPlugin } from './journal-lib.mjs';
 
 const SCRIPT_DIR = path.dirname(fileURLToPath(import.meta.url));
 const SKILL_DIR = path.resolve(SCRIPT_DIR, '..');
@@ -371,11 +371,46 @@ function installSettings(root, opts) {
 	} catch {
 		return log(opts, '  ⚠ .claude/settings.json is not valid JSON: left as is (plugin not enabled for Claude Code web)');
 	}
-	const next = withCloudPlugin(settings, opts.uninstall);
+	const next = withCloudHooks(withCloudPlugin(settings, opts.uninstall), opts.uninstall);
 	const indent = prev?.match(/^\{\r?\n([ \t]+)/)?.[1] ?? '\t';
 	const text = Object.keys(next).length ? `${JSON.stringify(next, null, indent)}\n` : '';
 	if (prev !== null && JSON.stringify(next) === JSON.stringify(settings)) return log(opts, '  = .claude/settings.json (plugin enabled)');
-	apply(file, text, opts, '.claude/settings.json (plugin enabled)');
+	apply(file, text, opts, '.claude/settings.json (plugin enabled + cloud hooks)');
+}
+
+/**
+ * Cloud sessions don't install plugins: the hooks in settings.json run this committed copy of the
+ * runtime instead. Re-running install refreshes it after a plugin update (--check flags drift).
+ * @param {string} root @param {Opts & { uninstall?: boolean }} opts
+ */
+function installCloudRuntime(root, opts) {
+	for (const rel of CLOUD_RUNTIME_FILES) {
+		const dest = path.join(root, CLOUD_RUNTIME_DIR, rel);
+		if (path.resolve(dest) === path.resolve(SCRIPT_DIR, rel)) continue;
+		const src = opts.uninstall ? '' : (read(path.join(SCRIPT_DIR, rel)) ?? '');
+		if (opts.uninstall && read(dest) === null) continue;
+		if (!opts.uninstall && !opts.dryRun) fs.mkdirSync(path.dirname(dest), { recursive: true });
+		apply(dest, src, opts, `${CLOUD_RUNTIME_DIR}/${rel} (cloud runtime)`);
+	}
+	if (opts.uninstall && !opts.dryRun) {
+		for (const d of [path.join(root, CLOUD_RUNTIME_DIR, 'agents'), path.join(root, CLOUD_RUNTIME_DIR)]) {
+			try {
+				fs.rmdirSync(d);
+			} catch {}
+		}
+	}
+}
+
+/** @param {string} root */
+function cloudRuntimeProblems(root) {
+	const problems = [];
+	for (const rel of CLOUD_RUNTIME_FILES) {
+		const cur = read(path.join(root, CLOUD_RUNTIME_DIR, rel));
+		const ref = read(path.join(SCRIPT_DIR, rel));
+		if (cur === null) problems.push(`${CLOUD_RUNTIME_DIR}/${rel} missing: cloud sessions won't journal → run install.mjs`);
+		else if (ref !== null && cur.replace(/\r\n/g, '\n') !== ref.replace(/\r\n/g, '\n')) problems.push(`${CLOUD_RUNTIME_DIR}/${rel} differs from the installed plugin (outdated?) → run install.mjs`);
+	}
+	return problems;
 }
 
 // ─── check ────────────────────────────────────────────────────────────────────
@@ -404,7 +439,10 @@ function check(root, jd, t) {
 		const settingsFile = path.join(root, '.claude', 'settings.json');
 		const ignored = tryGit(root, ['check-ignore', '--no-index', '-v', '.claude/settings.json']);
 		if (ignored) problems.push(`git-ignored: .claude/settings.json  ←  ${ignored}`);
-		problems.push(...cloudPluginProblems(read(settingsFile) === null ? null : readJson(settingsFile)));
+		const settings = read(settingsFile) === null ? null : readJson(settingsFile);
+		problems.push(...cloudPluginProblems(settings), ...cloudHookProblems(settings), ...cloudRuntimeProblems(root));
+		const rtIgnored = tryGit(root, ['check-ignore', '--no-index', '-v', `${CLOUD_RUNTIME_DIR}/journal.mjs`]);
+		if (rtIgnored) problems.push(`git-ignored: ${CLOUD_RUNTIME_DIR}/  ←  ${rtIgnored}`);
 	}
 	return problems;
 }
@@ -484,7 +522,10 @@ function main() {
 	installGitignore(root, t, opts);
 	installPackageJson(root, usesGithooksDir, opts);
 	installMemoryFile(root, jd, t, opts);
-	if (t.name === 'claude') installSettings(root, opts);
+	if (t.name === 'claude') {
+		installSettings(root, opts);
+		installCloudRuntime(root, opts);
+	}
 	const dirProblems = jd.external && !opts.uninstall ? externalDirProblems(jd) : [];
 	for (const p of dirProblems) log(opts, `⚠ ${p}`);
 	if (!dirProblems.length) installJournalsReadme(jd, opts);

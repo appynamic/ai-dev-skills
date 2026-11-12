@@ -923,3 +923,62 @@ export function cloudPluginProblems(settings) {
 	if (!settings?.extraKnownMarketplaces?.[MARKETPLACE]) return [`marketplace ${MARKETPLACE} not declared in .claude/settings.json: Claude Code web can't install the plugin → ${fix}`];
 	return [];
 }
+
+// ─── Cloud fallback hooks ─────────────────────────────────────────────────────
+
+/**
+ * Claude Code cloud sessions don't install the plugins a repo's settings.json enables, so the
+ * hooks/hooks.json hooks never fire there. Fallback: a copy of the runtime committed in the repo
+ * and project hooks that run it, gated on CLAUDE_CODE_REMOTE so a local session (where the plugin
+ * is installed) doesn't journal twice.
+ */
+export const CLOUD_RUNTIME_DIR = '.claude/journal-runtime';
+export const CLOUD_RUNTIME_FILES = ['journal.mjs', 'journal-lib.mjs', 'agents/antigravity.mjs'];
+const CLOUD_HOOKS = /** @type {const} */ ([
+	['SessionStart', undefined, 'session'],
+	['UserPromptSubmit', undefined, 'prompt'],
+	['Stop', undefined, 'stop'],
+	['PostToolUse', 'AskUserQuestion|ExitPlanMode', 'tool'],
+	['PreToolUse', 'Bash|PowerShell', 'precommit'],
+]);
+
+/** @param {string} sub */
+export function cloudHookCommand(sub) {
+	return `if [ "$CLAUDE_CODE_REMOTE" = "true" ]; then node "$CLAUDE_PROJECT_DIR/${CLOUD_RUNTIME_DIR}/journal.mjs" ${sub}; fi`;
+}
+
+/** @param {any} h */
+const isCloudHook = (h) => typeof h?.command === 'string' && h.command.includes('CLAUDE_CODE_REMOTE') && /journal(-runtime\/|\/scripts\/)journal\.mjs/.test(h.command);
+
+/**
+ * Adds (or with `remove`, strips) the cloud fallback hooks in a settings object, keeping every
+ * other hook. Idempotent: our previous entries are dropped before the current ones are added.
+ * @param {Record<string, any>} settings @param {boolean} [remove]
+ */
+export function withCloudHooks(settings, remove = false) {
+	const out = { ...settings };
+	/** @type {Record<string, any[]>} */
+	const hooks = {};
+	for (const [event, groups] of Object.entries(out.hooks ?? {})) {
+		const kept = (Array.isArray(groups) ? groups : [])
+			.map((g) => ({ ...g, hooks: (g.hooks ?? []).filter((h) => !isCloudHook(h)) }))
+			.filter((g) => g.hooks.length);
+		if (kept.length) hooks[event] = kept;
+	}
+	if (!remove) {
+		for (const [event, matcher, sub] of CLOUD_HOOKS) {
+			const group = { ...(matcher ? { matcher } : {}), hooks: [{ type: 'command', command: cloudHookCommand(sub), timeout: 30 }] };
+			(hooks[event] ??= []).push(group);
+		}
+	}
+	if (Object.keys(hooks).length) out.hooks = hooks;
+	else delete out.hooks;
+	return out;
+}
+
+/** @param {Record<string, any> | null} settings */
+export function cloudHookProblems(settings) {
+	const fix = 'run install.mjs, then commit .claude/settings.json and .claude/journal-runtime/';
+	const missing = CLOUD_HOOKS.filter(([event, , sub]) => !(settings?.hooks?.[event] ?? []).some((g) => (g.hooks ?? []).some((h) => h.command === cloudHookCommand(sub))));
+	return missing.length ? [`cloud fallback hooks missing in .claude/settings.json (${missing.map(([e]) => e).join(', ')}): cloud sessions won't journal → ${fix}`] : [];
+}
