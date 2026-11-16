@@ -18,6 +18,35 @@ A commit-message guard keeps every commit linked to its journal entry and plan (
 
 Inspired by [juliuszfedyk/dev-journal](https://github.com/juliuszfedyk/dev-journal), reworked so hooks write the verbatim instead of the agent typing it out on request.
 
+### [`presets`](plugins/presets) (Claude Code)
+
+Rule presets you would otherwise copy into every project's `CLAUDE.md` and `.claude/settings.json`. `/ap-preset apply base` adds the common agent rules: never run `pnpm dev`, no local worktree (plus `"worktree": { "bgIsolation": "none" }` in settings), no local commit except on Claude Code web, fast unit tests.
+
+- Each preset is a block between `<!-- preset:<name>:start -->`/`<!-- preset:<name>:end -->`, refreshed in place by a new `apply`.
+- A rule already written by hand elsewhere in `CLAUDE.md` is left out, not said twice.
+- Settings are merged only where the project has no value yet.
+- `/ap-preset status` shows the blocks that are out of date, and `/ap-preset remove <name>` undoes a preset.
+
+Stack presets ship as `nuxt` (Nuxt 4 / Vue), `3d` (three.js WebGPU + TSL, Rapier) and `unity-port` (faithful `.unitypackage` → three.js conversion: GUIDs, import settings, `.mat`, Shader Graphs in TSL, lossless + Draco/KTX2 GLBs, proven fidelity); more are added as `presets/<name>/` folders: see [plugins/presets/skills/ap-preset/SKILL.md](plugins/presets/skills/ap-preset/SKILL.md).
+
+```
+/plugin install presets@ai-dev-skills
+/ap-preset apply base
+```
+
+**Updating presets** takes two steps: update the plugin once, then refresh each project. Projects are not refreshed automatically, because their blocks live in each `CLAUDE.md`.
+
+1. Fetch the latest marketplace and update the plugin, then open a new session:
+
+   ```
+   claude plugin marketplace update ai-dev-skills
+   claude plugin update presets@ai-dev-skills
+   ```
+
+2. In each project, `/ap-preset status` lists the blocks that are `outdated`. Run `/ap-preset apply <name>…` again for them: each block is rewritten in place, and rules you wrote by hand are still left out. Then commit `CLAUDE.md` (and `.claude/settings.json` if it changed).
+
+When you publish a change to a preset, bump `version` in [`plugins/presets/.claude-plugin/plugin.json`](plugins/presets/.claude-plugin/plugin.json) and in [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json). Without a new version, `claude plugin update` keeps the old one.
+
 ## Install
 
 ### Claude Code
@@ -261,6 +290,8 @@ Naming: `YYYY-MM-DD--NNN-<slug>.md` (`NNN` = the day's sequence, restarts at `00
 ## Contributing
 
 Tests: `node --test plugins/journal/skills/journal/scripts/*.test.mjs plugins/journal/skills/journal/scripts/agents/*.test.mjs`. Pure logic lives in `journal-lib.mjs` and `agents/antigravity.mjs` (no filesystem/process access — everything testable goes there); `journal.mjs` and `install.mjs` are the thin I/O layer around it. The Antigravity tests replay a real captured conversation (`scripts/fixtures/antigravity/`); `journal.mjs dump <event>` (template: `templates/antigravity-dump-hooks.json`) captures a new one.
+
+Presets: `node --test plugins/presets/skills/ap-preset/scripts/*.test.mjs`.
 
 To add another plugin to this marketplace: a new `plugins/<name>/` with its own `.claude-plugin/plugin.json`, listed in [`.claude-plugin/marketplace.json`](.claude-plugin/marketplace.json) — plus a `plugin.json` at its root (and `hooks.json` / `rules/` if needed) to make it an Antigravity plugin too.
 

@@ -1,0 +1,15 @@
+{
+	"description": "Règles 3D three.js : WebGPU toujours (WebGL2 en repli seulement), shaders TSL, physique Rapier, dernières versions des libs, moteur hors de la réactivité, couches pures, boucle à 60 i/s, perf mobile.",
+	"covered": {
+		"webgpu": "three/webgpu",
+		"tsl": "three/tsl|shaders? (?:s'écrit |written )?en TSL|in TSL|\\*NodeMaterial",
+		"rapier": "\\brapier",
+		"latest": "dernières? (?:versions?|librair|libs?)|latest (?:stable )?versions?",
+		"handle": "ref`?\\s*/\\s*`?store|in a `?ref|dans un `?ref",
+		"layers": "ni three|sans three|without three|no three",
+		"lifecycle": "un (?:seul )?jeu par document|one game per document",
+		"frame": "setAnimationLoop|plafond à 60|60 ?i/s|60 ?fps",
+		"perf": "castShadow|image de chauffe|warm-?up ?frame|compileAsync"
+	},
+	"settings": {}
+}

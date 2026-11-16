@@ -1,0 +1,14 @@
+{
+	"description": "Portage .unitypackage → TypeScript + three.js WebGPU + TSL, fidèle : GUID, réglages d'import, .mat, Shader Graphs en TSL, GLB sans perte + Draco/KTX2, conversion reproductible, valeurs sérialisées, fidélité prouvée.",
+	"covered": {
+		"sources": "guid-map|unitypackage-extract",
+		"import-settings": "useFileScale|globalScale|réglages d'import unity|unity import settings",
+		"materials": "smoothness",
+		"shaders": "shader ?graphs?[^\\n]{0,80}TSL|TSL[^\\n]{0,80}shader ?graphs?",
+		"compression": "KHR_texture_basisu",
+		"pipeline": "gltf-transform",
+		"gameplay": "valeurs sérialisées|serialized values|unity-scene-to-level",
+		"fidelity": "audit de fidélité|fidelity audit"
+	},
+	"settings": {}
+}

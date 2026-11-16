@@ -110,7 +110,10 @@ function effectiveConfig(root, t) {
  */
 function upsertBlock(text, start, end, block) {
 	const re = new RegExp(`\\n*${escapeRe(start)}[\\s\\S]*?${escapeRe(end)}\\n?`);
-	const stripped = text.replace(re, '\n').replace(/\n{3,}$/, '\n\n');
+	const m = re.exec(text);
+	// A block at the very top leaves nothing behind (no leading blank line, which would grow each run).
+	const removed = !m ? text : m.index === 0 ? text.slice(m[0].length).replace(/^\n+/, '') : `${text.slice(0, m.index)}\n${text.slice(m.index + m[0].length)}`;
+	const stripped = removed.replace(/\n{3,}$/, '\n\n');
 	if (block === null) return stripped.replace(/\n+$/, '\n');
 	const base = stripped.replace(/\n+$/, '');
 	return `${base}${base ? '\n\n' : ''}${start}\n${block.replace(/\n+$/, '')}\n${end}\n`;

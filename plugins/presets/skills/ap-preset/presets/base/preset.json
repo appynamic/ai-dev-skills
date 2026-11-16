@@ -1,0 +1,12 @@
+{
+	"description": "Règles de travail communes : ne jamais lancer pnpm dev, pas de worktree en local, pas de commit en local (sauf Claude Code web), tests unitaires rapides.",
+	"covered": {
+		"dev-server": "(?:jamais|never|ne pas|do not|don't)[^\\n]{0,60}(?:lancer|launch|run|start)[^\\n]{0,40}(?:pnpm (?:run )?dev\\b|dev server|serveur de dev)|dev server is already running",
+		"worktree": "(?:jamais|never|no|pas)[^\\n]{0,30}worktrees?",
+		"commit": "ne (?:stage ni ne )?commite? jamais|never (?:stage or )?commit|no (?:automatic )?commits?\\b|pas de commit",
+		"tests": "targeted[^\\n]{0,20}vitest|full suite once|suite complète une fois|tests? (?:unitaires? )?rapides?|fast unit tests?"
+	},
+	"settings": {
+		"worktree": { "bgIsolation": "none" }
+	}
+}

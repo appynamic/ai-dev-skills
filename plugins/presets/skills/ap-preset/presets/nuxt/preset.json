@@ -1,0 +1,15 @@
+{
+	"description": "Règles Nuxt 4 : Composition API, TypeScript, exports nommés, aucune couleur en dur, commentaires, i18n FR/EN, stabilité du serveur de dev (.nuxt/), llms.txt.",
+	"covered": {
+		"nuxt4": "never use nuxt 3|jamais (?:de )?nuxt 3",
+		"composition": "options api",
+		"typescript": "prefer `?interface`? over `?type|`?interface`? plutôt que `?type",
+		"exports": "named exports?|exports? nommés?",
+		"styling": "hard ?coded? colou?rs?|couleurs? en dur",
+		"comments": "remove (?:any |existing )?comments|supprimer[^\\n]{0,20}commentaires?",
+		"i18n": "fr\\.json`?\\s*(?:\\*\\*)?(?:\\+|and|et)(?:\\*\\*)?\\s*`?en\\.json|never hardcode user-facing text|aucun texte visible codé en dur",
+		"dev-stability": "regenerates? `?\\.nuxt|régénère `?\\.nuxt",
+		"docs": "llms\\.txt"
+	},
+	"settings": {}
+}

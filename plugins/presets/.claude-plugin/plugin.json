@@ -1,0 +1,10 @@
+{
+	"name": "presets",
+	"version": "0.1.0",
+	"description": "Rule presets for a project's CLAUDE.md and .claude/settings.json — base agent rules (no pnpm dev, no local worktree, no local commit except Claude Code web, fast unit tests), stack presets to come. Skips rules already written by hand.",
+	"author": { "name": "appynamic" },
+	"homepage": "https://github.com/appynamic/ai-dev-skills",
+	"repository": "https://github.com/appynamic/ai-dev-skills",
+	"license": "MIT",
+	"keywords": ["claude-md", "rules", "settings", "preset", "guardrails"]
+}
