@@ -121,3 +121,126 @@ Si `journal` apparaît bien, je mets à jour le README. Il dit encore « pas de 
 Je commite en `docs: antigravity install via /plugin install + root plugins.json` ?
 
 <!-- journal:reply -->
+
+--------------------------------------------
+
+> <pasted_content id="2bbc">
+> /plugin install https://github.com/appynamic/ai-dev-skills.git
+>
+> https://github.com/appynamic/ai-dev-skills.git is already cloned to C:\Users\Nikko\.gemini\config\plugins\ai-dev-skills.
+>
+> Because it is a Claude Code plugin collection (with a plugins/ subdirectory and no root plugin.json), Antigravity does not load the repository root as a plugin directly. Inside plugins/, it contains:
+>
+>
+>
+> journal (already installed as journal)
+>
+>
+> presets
+>
+>
+>
+> Would you like me to set up presets as an Antigravity plugin in C:\Users\Nikko\.gemini\config\plugins\presets?
+> </pasted_content id="2bbc">
+
+<!-- journal:turn -->
+
+**Claude** · 15:20
+
+🤟 Réponds **non** à la proposition de `presets`. Elle est inutile pour Antigravity, et l'app ne saurait pas l'installer proprement.
+
+Ce retour ne prouve rien sur le [plugins.json](plugins.json) racine. Il n'est ni commité ni poussé, donc le clone dans `~/.gemini/config/plugins/ai-dev-skills` ne l'a pas. Le message « journal (already installed as journal) » vient de ton `~/.gemini/config/plugins.json` global.
+
+L'app a aussi confirmé qu'elle ne charge pas la racine du repo comme un plugin. Le `plugins.json` racine ne sert que si Antigravity le lit dans un clone, et rien ne l'indique pour l'instant.
+
+**Pour trancher :**
+1. Je commite et pousse (`docs: antigravity install via /plugin install + root plugins.json`).
+2. Tu retires `~/.gemini/config/plugins.json`.
+3. Tu fais `cd` dans le clone (`git pull`), puis `/plugin install ...` à nouveau et `/plugin list`.
+
+Si `journal` apparaît, le fichier racine marche et je simplifie le README. Sinon, je supprime `plugins.json` du repo, et la seule voie reste le `plugins.json` global ou un repo dédié `journal`.
+
+Je commite et pousse ?
+
+<!-- journal:reply -->
+
+--------------------------------------------
+
+> si j'avais commité le plugins.json
+
+<!-- journal:turn -->
+
+**Claude** · 15:21
+
+🤟 C'est déjà fait : `35671f1` est commité et poussé (le `HEAD` distant est identique).
+
+Le clone dans `~/.gemini/config/plugins/ai-dev-skills` date d'avant ce push. Au dernier `/plugin install`, l'app a dit « already cloned » et n'a rien mis à jour, donc elle n'a pas vu le fichier. Pour tester maintenant :
+
+```
+git -C C:\Users\Nikko\.gemini\config\plugins\ai-dev-skills pull
+```
+
+Ensuite :
+1. Renomme `~/.gemini/config/plugins.json` en `plugins.json.bak`, pour qu'il ne masque pas le test.
+2. Redémarre l'app et lance `/plugin list`.
+
+Si `journal` apparaît, le `plugins.json` racine suffit. Je simplifie alors le README : une seule commande `/plugin install`, sans étape 2. S'il n'apparaît pas, je supprime le fichier du repo et je garde le `plugins.json` global. Remets ton `.bak` en place dans ce cas.
+
+<!-- journal:reply -->
+
+--------------------------------------------
+
+> ajoute la commande /plugin list dans le readme pour vérifier
+
+<!-- journal:turn -->
+
+**Claude** · 15:24 · _fichiers : README.md_
+
+🤟 J'ai mis à jour la section Antigravity du [README](README.md#L131).
+
+- **Étape 1 :** `/plugin install https://github.com/appynamic/ai-dev-skills.git`, puis `/plugin list` pour vérifier que `journal` est activé. J'ai aussi noté que `presets` peut apparaître (comme sur ta capture), que ça ne gêne pas, et que `/plugin disable presets` l'enlève.
+- **Étape 2 :** devenue un repli, à utiliser seulement si `/plugin list` ne montre pas `journal`. Elle garde le `plugins.json` manuel.
+
+Ta capture montre que `journal` et `presets` sont tous deux activés. Je ne sais donc pas si le `plugins.json` racine est lu : l'app a peut-être simplement détecté tout le dossier `plugins/`. Il reste inoffensif, mais je peux le supprimer si tu préfères. Pour le savoir, il aurait fallu vérifier que ton `plugins.json` global était bien désactivé pendant le test.
+
+Rien n'est commité. Je commite en `docs: antigravity /plugin list check` ?
+
+<!-- journal:reply -->
+
+--------------------------------------------
+
+> oui j'avais supprimé plugins.json dans C:\Users\Nikko\.gemini\config
+
+<!-- journal:turn -->
+
+**Claude** · 15:26
+
+🤟 Confirmé : sans ton `plugins.json` global, `/plugin install <url>` suffit. `journal` est activé avec le skill `journal`.
+
+`presets` est chargé aussi, alors que mon `plugins.json` racine ne demande que `journal` avec `include_only`. Donc :
+- soit l'app ne lit pas ce fichier et découvre tout le dossier `plugins/` ;
+- soit elle ignore `include_only`.
+
+Dans les deux cas, il n'apporte rien de vérifié. Je propose de le supprimer du repo, et d'adapter le README en conséquence : la ligne « le `plugins.json` racine pointe sur journal » disparaît, le repli manuel reste.
+
+Les modifs du [README](README.md#L131) ne sont pas commitées. Je supprime `plugins.json` et je commite en `docs: antigravity install via /plugin install, verify with /plugin list` ?
+
+<!-- journal:reply -->
+
+--------------------------------------------
+
+> ok
+
+<!-- journal:turn -->
+
+### Synthèse · 2026-11-19 17:00
+
+Résumé : installation du plugin journal dans l'app Antigravity testée : `/plugin install https://github.com/appynamic/ai-dev-skills.git` clone dans `~/.gemini/config/plugins/` et active `journal` et `presets` (vérifié avec `/plugin list`). README mis à jour (commande d'install, vérification, repli `plugins.json` manuel) ; `plugins.json` racine supprimé.
+Décisions : plugins.json racine retiré (pas de preuve qu'il soit lu, `presets` chargé malgré `include_only`) ; repli manuel gardé dans le README.
+Suites : tester l'IDE et le CLI Antigravity ; `presets` reste activé côté Antigravity (inoffensif, `/plugin disable presets`).
+
+| Fichier | Changement |
+| --- | --- |
+| `README.md` | modified — section Antigravity : /plugin install + /plugin list, étape 2 devenue repli |
+| `plugins.json` | deleted — fichier racine inutile |
+| `docs/journals/2026-11-19--001-antigravity-journal-plugin-install-options.md` | modified — journal + synthèse |

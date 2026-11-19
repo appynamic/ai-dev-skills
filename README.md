@@ -130,9 +130,9 @@ removes exactly what `init` added. It never touches the journals themselves.
 
 ### Antigravity (experimental)
 
-Calibrated and tested on Antigravity 2.0 (2.19.1); the Antigravity IDE and CLI share the same plugin format but are not tested yet. Only `journal` is for Antigravity (`presets` is Claude Code only); the repo's root [`plugins.json`](plugins.json) already points at it.
+Calibrated and tested on Antigravity 2.0 (2.19.1); the Antigravity IDE and CLI share the same plugin format but are not tested yet. Only `journal` is meant for Antigravity.
 
-#### 1. Clone this repo
+#### 1. Install
 
 In the Antigravity app:
 
@@ -140,11 +140,17 @@ In the Antigravity app:
 /plugin install https://github.com/appynamic/ai-dev-skills.git
 ```
 
-It clones into `~/.gemini/config/plugins/ai-dev-skills`; `git pull` there updates the plugin. (Or `git clone` it anywhere yourself.)
+It clones into `~/.gemini/config/plugins/ai-dev-skills` (`git pull` there updates the plugin) and enables the plugins it finds. Check with:
 
-#### 2. Point Antigravity at the clone
+```
+/plugin list
+```
 
-Create `plugins.json` — globally in `~/.gemini/config/plugins.json` (every workspace), or in a project's `.agents/plugins.json` (that project only; git-ignore it, the path is per machine) — with the **absolute path** of the clone's `plugins` folder:
+`journal` must be listed as enabled (skill `journal`). `presets` may be listed too — it is for Claude Code, harmless here; `/plugin disable presets` if you don't want it.
+
+#### 2. Fallback: point Antigravity at a clone
+
+Only if `/plugin list` doesn't show `journal`. Create `plugins.json` — globally in `~/.gemini/config/plugins.json` (every workspace), or in a project's `.agents/plugins.json` (that project only; git-ignore it, the path is per machine) — with the **absolute path** of the clone's `plugins` folder:
 
 ```json
 {

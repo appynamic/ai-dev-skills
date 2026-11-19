@@ -1,3 +1,0 @@
-{
-	"entries": [{ "path": "./plugins", "include_only": ["journal"] }]
-}
