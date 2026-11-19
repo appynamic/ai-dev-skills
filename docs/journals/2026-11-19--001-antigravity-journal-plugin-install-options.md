@@ -244,3 +244,15 @@ Suites : tester l'IDE et le CLI Antigravity ; `presets` reste activé côté Ant
 | `README.md` | modified — section Antigravity : /plugin install + /plugin list, étape 2 devenue repli |
 | `plugins.json` | deleted — fichier racine inutile |
 | `docs/journals/2026-11-19--001-antigravity-journal-plugin-install-options.md` | modified — journal + synthèse |
+
+**Claude** · 15:28 · _fichiers : README.md_
+
+🤟 Commité en `8fe3297`, pas poussé.
+
+- Le [README](README.md#L131) décrit `/plugin install <url>` puis `/plugin list`, avec le `plugins.json` manuel en repli.
+- Le `plugins.json` racine est supprimé.
+- Le commit porte le trailer `Journal:` et la synthèse a été ajoutée au journal.
+
+Je pousse (`git push`) ? Le CLI et l'IDE Antigravity restent à tester.
+
+<!-- journal:reply -->
