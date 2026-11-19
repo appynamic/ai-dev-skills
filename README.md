@@ -130,15 +130,17 @@ removes exactly what `init` added. It never touches the journals themselves.
 
 ### Antigravity (experimental)
 
-Calibrated and tested on Antigravity 2.0 (2.19.1); the Antigravity IDE and CLI share the same plugin format but are not tested yet. There is no GitHub marketplace on the Antigravity side for now: you load the plugin from a local clone.
+Calibrated and tested on Antigravity 2.0 (2.19.1); the Antigravity IDE and CLI share the same plugin format but are not tested yet. Only `journal` is for Antigravity (`presets` is Claude Code only); the repo's root [`plugins.json`](plugins.json) already points at it.
 
 #### 1. Clone this repo
 
+In the Antigravity app:
+
 ```
-git clone https://github.com/appynamic/ai-dev-skills.git
+/plugin install https://github.com/appynamic/ai-dev-skills.git
 ```
 
-`git pull` in that clone updates the plugin; Antigravity loads it from there.
+It clones into `~/.gemini/config/plugins/ai-dev-skills`; `git pull` there updates the plugin. (Or `git clone` it anywhere yourself.)
 
 #### 2. Point Antigravity at the clone
 
