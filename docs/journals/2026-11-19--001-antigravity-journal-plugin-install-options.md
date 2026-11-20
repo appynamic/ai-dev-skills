@@ -256,3 +256,23 @@ Suites : tester l'IDE et le CLI Antigravity ; `presets` reste activé côté Ant
 Je pousse (`git push`) ? Le CLI et l'IDE Antigravity restent à tester.
 
 <!-- journal:reply -->
+
+--------------------------------------------
+
+> dois je commité le .agents\journal-state.json  dans un projet avec journal actif ?
+
+<!-- journal:turn -->
+
+**Claude** · 11:12
+
+🤟 **Non, ne le commite pas.** C'est un état local : le dernier step journalisé par conversation Antigravity. Il change à chaque tour et créerait des conflits entre machines.
+
+`/journal init --target antigravity` l'ajoute déjà au `.gitignore` du projet, dans le bloc `# journal-skill:start … end`, avec `.agents/journal-dump/` ([install.mjs:33](plugins/journal/skills/journal/scripts/install.mjs#L33)). S'il apparaît quand même dans `git status` :
+- `init` n'a pas été lancé avec `--target antigravity`. Relance-le, il est idempotent.
+- ou le fichier est déjà suivi par git. Dans ce cas : `git rm --cached .agents/journal-state.json`.
+
+**À commiter dans un projet Antigravity :** `.agents/journal.config.json`, le hook git et `AGENTS.md`, comme le dit le README.
+
+Ce repo n'a pas de bloc `.agents/` dans son `.gitignore`, parce qu'il ne s'auto-installe pas pour Antigravity. Je ne touche à rien ici.
+
+<!-- journal:reply -->
