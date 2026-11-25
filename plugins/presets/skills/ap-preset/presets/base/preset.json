@@ -1,10 +1,11 @@
 {
-	"description": "Règles de travail communes : ne jamais lancer pnpm dev, pas de worktree en local, pas de commit en local (sauf Claude Code web), tests unitaires rapides.",
+	"description": "Règles de travail communes : ne jamais lancer pnpm dev, pas de worktree en local, pas de commit en local (sauf Claude Code web), tests unitaires rapides, tests longs (smoke/e2e) ciblés d'abord et commités avant sur Claude Code web.",
 	"covered": {
 		"dev-server": "(?:jamais|never|ne pas|do not|don't)[^\\n]{0,60}(?:lancer|launch|run|start)[^\\n]{0,40}(?:pnpm (?:run )?dev\\b|dev server|serveur de dev)|dev server is already running",
 		"worktree": "(?:jamais|never|no|pas)[^\\n]{0,30}worktrees?",
 		"commit": "ne (?:stage ni ne )?commite? jamais|never (?:stage or )?commit|no (?:automatic )?commits?\\b|pas de commit",
-		"tests": "targeted[^\\n]{0,20}vitest|full suite once|suite complète une fois|tests? (?:unitaires? )?rapides?|fast unit tests?"
+		"tests": "targeted[^\\n]{0,20}vitest|full suite once|suite complète une fois|tests? (?:unitaires? )?rapides?|fast unit tests?",
+		"e2e": "avant (?:un|chaque) (?:smoke|e2e|test) long|before (?:a|any) long (?:smoke|e2e|test)|ciblés? d'abord, complets? rarement|targeted first, full rarely"
 	},
 	"settings": {
 		"worktree": { "bgIsolation": "none" }

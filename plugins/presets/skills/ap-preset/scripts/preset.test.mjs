@@ -31,7 +31,7 @@ describe('presets catalog', () => {
 describe('buildBlock (base)', () => {
 	it('keeps every rule for an empty CLAUDE.md, without the section markers', () => {
 		const { block, kept, skipped } = buildBlock(base, '');
-		assert.deepEqual(kept, ['dev-server', 'worktree', 'commit', 'tests']);
+		assert.deepEqual(kept, ['dev-server', 'worktree', 'commit', 'tests', 'e2e']);
 		assert.deepEqual(skipped, []);
 		assert.match(block ?? '', /^## Règles de travail des agents/);
 		assert.doesNotMatch(block ?? '', /<!-- rule:/);
@@ -45,6 +45,8 @@ describe('buildBlock (base)', () => {
 			['worktree', '- **No worktrees locally** with multiple agent sessions'],
 			['commit', '- **No automatic commits** except from Claude Code (web) in a remote session'],
 			['tests', '- Prefer targeted `pnpm exec vitest run <files>`; run the full suite once at the end'],
+			['e2e', '- ⚠️ **Commiter (et pousser) AVANT un smoke long** : dès que `pnpm test` est vert, commit et push'],
+			['e2e', "- **Ciblé d'abord, complet rarement.** `SMOKE_PAGES=olhain,louvre` ne joue que les pages nommées"],
 		]);
 		for (const [id, line] of cases) assert.deepEqual(buildBlock(base, `# P\n\n${line}\n`).skipped, [id], line);
 	});
@@ -60,7 +62,7 @@ describe('buildBlock (base)', () => {
 	});
 
 	it('returns no block once every theme is covered', () => {
-		assert.equal(buildBlock(base, 'NEVER run `pnpm dev`\nJamais de worktree\nNo automatic commits\nTests unitaires rapides\n').block, null);
+		assert.equal(buildBlock(base, 'NEVER run `pnpm dev`\nJamais de worktree\nNo automatic commits\nTests unitaires rapides\nCommiter avant un smoke long\n').block, null);
 	});
 });
 

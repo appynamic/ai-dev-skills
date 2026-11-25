@@ -1,6 +1,6 @@
 ---
 name: ap-preset
-description: Apply rule presets to the project's CLAUDE.md and .claude/settings.json — `base` (never run pnpm dev, no local worktree, no local commit except on Claude Code web, fast unit tests), and stack presets as they are added. Use when the user types /ap-preset, or asks to add the usual/base agent rules, or rules for a stack, to a project.
+description: Apply rule presets to the project's CLAUDE.md and .claude/settings.json — `base` (never run pnpm dev, no local worktree, no local commit except on Claude Code web, fast unit tests, long smoke/e2e tests targeted first and committed before on Claude Code web), and stack presets as they are added. Use when the user types /ap-preset, or asks to add the usual/base agent rules, or rules for a stack, to a project.
 argument-hint: "[list | status | apply <name>... | remove <name>...]"
 allowed-tools: Bash(node "${CLAUDE_PLUGIN_ROOT}/skills/ap-preset/scripts/preset.mjs":*) Read Grep
 ---
